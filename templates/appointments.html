@@ -5,6 +5,7 @@
 .appt-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; }
 @media(max-width:640px){ .appt-grid { grid-template-columns:1fr; } }
 .slot-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:.5rem; max-height:260px; overflow-y:auto; }
+.slot-btn { padding:.5rem .7rem; border:2px solid var(--border); border-radius:8px; background:var(--surface);
             color:var(--text); cursor:pointer; font-size:.78rem; text-align:center; transition:all .2s; }
 .slot-btn:hover { border-color:var(--primary); }
 .slot-btn.selected { border-color:var(--primary); background:var(--primary-light); color:var(--primary); font-weight:700; }
