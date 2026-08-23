@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+{% block title %}Home — SmartQueue{% endblock %}
+{% block extra_head %}
+<style>
+.svc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:.9rem;margin-bottom:1.2rem;}
+.svc-card{background:var(--surface);border-radius:var(--radius);padding:1.3rem;border:2px solid var(--border);cursor:pointer;transition:all .2s;}
+.svc-card:hover{border-color:var(--primary);transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.1);}
+.svc-card.selected{border-color:var(--primary);background:var(--primary-l);}
+.svc-card.paused{opacity:.6;cursor:not-allowed;}
+.svc-card h3{font-size:.93rem;color:var(--accent);margin-bottom:.5rem;}
+.svc-card-icon{width:38px;height:38px;border-radius:9px;background:var(--primary-l);display:flex;align-items:center;justify-content:center;margin-bottom:.7rem;flex-shrink:0;}
+.svc-card-icon svg{width:18px;height:18px;stroke:var(--primary);}
+html.dark .svc-card-icon{background:var(--primary-l);}
+.prio-group{display:flex;gap:.5rem;margin-bottom:.9rem;}
+.prio-btn{flex:1;padding:.5rem .4rem;border:2px solid var(--border);border-radius:7px;cursor:pointer;font-size:.8rem;font-weight:600;background:var(--surface);color:var(--text);transition:all .2s;display:flex;align-items:center;justify-content:center;gap:.3rem;}
+.prio-btn svg{width:13px;height:13px;flex-shrink:0;}
+.prio-btn.p1{border-color:#38a169;background:#f0fff4;color:#276749;}
+.prio-btn.p2{border-color:#dd6b20;background:#fffaf0;color:#9c4221;}
+.prio-btn.p3{border-color:#e53e3e;background:#fff5f5;color:#9b2c2c;}
+html.dark .prio-btn.p1{background:#0f2a0f;}
+html.dark .prio-btn.p2{background:#2a1800;}
+html.dark .prio-btn.p3{background:#2a0f0f;}
+.ticket-no-display{font-size:3.2rem;font-weight:900;color:var(--primary);letter-spacing:.2rem;margin:.8rem 0;font-family:'Courier New',monospace;}
+.tgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;margin:.8rem 0;}
+.tbox{background:var(--surface2);border-radius:8px;padding:.9rem;text-align:center;}
+.tbox .v{font-size:1.1rem;font-weight:700;color:var(--primary);}
+.tbox .l{font-size:.72rem;color:var(--muted);margin-top:.2rem;}
+.star-btn{background:none;border:none;cursor:pointer;padding:.2rem;transition:transform .15s;}
+.star-btn:hover{transform:scale(1.2);}
+.star-btn svg{width:28px;height:28px;stroke:#d69e2e;fill:transparent;transition:fill .15s;}
+.star-btn.lit svg{fill:#d69e2e;}
+.ann{padding:.8rem 1rem;border-radius:8px;margin-bottom:.7rem;font-size:.87rem;border-left:4px solid;display:flex;align-items:flex-start;gap:.6rem;}
+.ann svg{width:16px;height:16px;flex-shrink:0;margin-top:.1rem;}
+.ann.info{background:#ebf8ff;border-color:#3182ce;color:#2c5282;}
+.ann.warning{background:#fffaf0;border-color:#dd6b20;color:#9c4221;}
+.ann.urgent{background:#fff5f5;border-color:#e53e3e;color:#9b2c2c;}
+html.dark .ann.info{background:#1a2744;}
+html.dark .ann.warning{background:#2a1800;}
+html.dark .ann.urgent{background:#2a0f0f;}
+
+
+
+
+
+
+
+
+.active-ticket-banner{background:var(--primary-l);border:2px solid var(--primary);border-radius:var(--radius);padding:1rem 1.4rem;margin-bottom:1.2rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.8rem;}
+</style>
+{% endblock %}
+{% block content %}
+
+<h1 class="page-title">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+  Welcome, {{ student_name }}
+</h1>
+
+<!-- Announcements -->
+{% if announcements %}
+<div style="margin-bottom:1.2rem;">
+  {% for a in announcements %}
+  <div class="ann {{ a.type }}">
+    {% if a.type == 'urgent' %}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    {% elif a.type == 'warning' %}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    {% else %}
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+    {% endif %}
+    <div><strong>{{ a.title }}</strong> — {{ a.body }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Active ticket banner -->
+{% if active_ticket %}
+<div class="active-ticket-banner">
+  <div style="display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;">
+    <svg style="width:20px;height:20px;stroke:var(--primary)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
+    <strong>Active Ticket:</strong>
+    <span style="font-size:1.2rem;font-weight:900;color:var(--primary);font-family:'Courier New',monospace;">{{ active_ticket.ticket_no }}</span>
+    <span class="badge {% if active_ticket.status=='waiting' %}bo{% else %}bg{% endif %}">{{ active_ticket.status.upper() }}</span>
+    {% if active_ticket.counter %}
+    <span style="font-weight:600;">→ Counter {{ active_ticket.counter }}</span>
+    {% endif %}
+  </div>
+  <button class="btn btn-outline btn-sm" onclick="trackTicket('{{ active_ticket.ticket_no }}')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    Track
+  </button>
+</div>
+{% endif %}
+
+<!-- Service Cards -->
+<div class="card" style="margin-bottom:1rem;">
+  <h2 style="color:var(--accent);margin-bottom:.9rem;font-size:1.05rem;display:flex;align-items:center;gap:.5rem;">
+    <svg style="width:18px;height:18px;stroke:var(--accent)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+    Join a Queue
+  </h2>
+  <div class="svc-grid" id="svc-grid">
+    {% for key, svc in queues.items() %}
+    {% set icons = {
+      'admission':  '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+      'financial':  '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+      'academic':   '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+      'counseling': '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+      'library':    '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+      'it_support': '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>'
+    } %}
+    <div class="svc-card {% if svc.is_paused %}paused{% endif %}"
+         onclick="{% if not svc.is_paused %}selectSvc('{{ key }}','{{ svc.name }}'){% else %}alert('This service is currently paused. Please try again later or book an appointment.'){% endif %}"
+         id="card-{{ key }}">
+      <div class="svc-card-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          {% if key in icons %}{{ icons[key] | safe }}{% else %}<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>{% endif %}
+        </svg>
+      </div>
+      <h3>{{ svc.name }}</h3>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+        <span class="badge {% if svc.waiting < 5 %}bg{% elif svc.waiting < 10 %}bo{% else %}br{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          {{ svc.waiting }} waiting
+        </span>
+        <span class="badge bb">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          ~{{ svc.est_wait }} min
+        </span>
+        {% if svc.is_paused %}<span class="badge br">Paused</span>{% endif %}
+        {% if svc.waiting >= svc.max_queue %}<span class="badge br">Full</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Join form -->
+<div class="card" id="join-form" style="display:none;margin-bottom:1rem;">
+  <h2 style="color:var(--accent);margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;">
+    <svg style="width:18px;height:18px;stroke:var(--accent)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2z"/></svg>
+    Join Queue — <span id="svc-name-lbl" style="color:var(--primary);margin-left:.3rem;"></span>
+  </h2>
+  <div class="form-group">
+    <label>Priority Level</label>
+    <div class="prio-group">
+      <button class="prio-btn p1" id="pb1" onclick="setPrio(1)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Normal
+      </button>
+      <button class="prio-btn" id="pb2" onclick="setPrio(2)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg>
+        High (Special needs)
+      </button>
+      <button class="prio-btn" id="pb3" onclick="setPrio(3)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        Urgent (Emergency)
+      </button>
+    </div>
+  </div>
+  <div class="form-group">
+    <label>Notes (optional)</label>
+    <textarea id="notes" placeholder="Any details for staff..."></textarea>
+  </div>
+  <div id="join-err" class="alert alert-error" style="display:none;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <span id="join-err-msg"></span>
+  </div>
+  <div style="display:flex;gap:.8rem;">
+    <button class="btn btn-outline" onclick="cancelJoin()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      Back
+    </button>
+    <button class="btn btn-primary" onclick="joinQueue()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Join Queue
+    </button>
+  </div>
+</div>
+
+<!-- Ticket result -->
+<div class="card" id="ticket-result" style="display:none;text-align:center;margin-bottom:1rem;">
+  <div style="color:var(--muted);font-size:.9rem;margin-bottom:.3rem;">Your Queue Ticket</div>
+  <div class="ticket-no-display" id="res-no"></div>
+  <div class="tgrid">
+    <div class="tbox"><div class="v" id="res-svc"></div><div class="l">Service</div></div>
+    <div class="tbox"><div class="v" id="res-prio"></div><div class="l">Priority</div></div>
+    <div class="tbox"><div class="v" id="res-wait"></div><div class="l">Est. Wait</div></div>
+  </div>
+  <div style="display:flex;gap:.8rem;justify-content:center;margin-top:.5rem;">
+    <button class="btn btn-outline" onclick="resetAll()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Join Another
+    </button>
+    <button class="btn btn-primary" onclick="startTracking()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Track Position
+    </button>
+  </div>
+</div>
+
+<!-- Status tracker -->
+<div class="card" id="status-section" style="display:none;margin-bottom:1rem;">
+  <h2 style="color:var(--accent);margin-bottom:.9rem;display:flex;align-items:center;gap:.5rem;">
+    <svg style="width:18px;height:18px;stroke:var(--accent)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    Live Status — <span id="track-lbl" style="color:var(--primary);margin-left:.3rem;font-family:'Courier New',monospace;"></span>
+  </h2>
+  <div id="status-body">Loading...</div>
+  <div id="requeue-panel" style="display:none;margin-top:1rem;">
+    <button class="btn btn-primary" onclick="requeue()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.06"/></svg>
+      Re-Join Queue
+    </button>
+  </div>
+  <!-- Feedback -->
+  <div id="fb-panel" style="display:none;border-top:1px solid var(--border);padding-top:1.2rem;margin-top:1.2rem;">
+    <h3 style="margin-bottom:.5rem;color:var(--accent);display:flex;align-items:center;gap:.4rem;">
+      <svg style="width:16px;height:16px;stroke:#d69e2e" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      Rate Your Experience
+    </h3>
+    <div style="display:flex;gap:.3rem;margin:.6rem 0;" id="stars-row">
+      {% for i in range(1,6) %}
+      <button class="star-btn" onclick="setStar({{ i }})" id="star-{{ i }}">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      </button>
+      {% endfor %}
+    </div>
+    <textarea id="fb-comment" placeholder="Leave a comment (optional)..." style="margin-bottom:.8rem;"></textarea>
+    <button class="btn btn-primary" onclick="submitFeedback()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      Submit Feedback
+    </button>
+    <div id="fb-thanks" class="alert alert-success" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      Thank you for your feedback!
+    </div>
+  </div>
+</div>
+
+<!-- Ticket History -->
+{% if my_history %}
+<div class="card" style="margin-bottom:5rem;">
+  <h2 style="color:var(--accent);margin-bottom:.9rem;font-size:1rem;display:flex;align-items:center;gap:.4rem;">
+    <svg style="width:16px;height:16px;stroke:var(--accent)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+    My Recent Tickets
+  </h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Ticket</th><th>Service</th><th>Status</th><th>Date</th><th>Action</th></tr></thead>
+      <tbody>
+        {% for t in my_history %}
+        <tr>
+          <td><strong style="font-family:'Courier New',monospace;">{{ t.ticket_no }}</strong></td>
+          <td style="font-size:.82rem;">{{ t.service }}</td>
+          <td>
+            <span class="badge {% if t.status=='completed' %}bg{% elif t.status=='waiting' %}bo{% elif t.status=='serving' %}bb{% else %}br{% endif %}">
+              {{ t.status }}
+            </span>
+          </td>
+          <td style="font-size:.78rem;color:var(--muted);">{{ t.created_at[:16] }}</td>
+          <td>
+            {% if t.status in ('waiting','serving') %}
+              <button class="btn btn-outline btn-sm" onclick="trackTicket('{{ t.ticket_no }}')">Track</button>
+            {% elif t.status == 'no_show' %}
+              <button class="btn btn-primary btn-sm" onclick="requeueDirect('{{ t.ticket_no }}')">Re-Queue</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+
+
+
+{% endblock %}
+{% block scripts %}
+<script>
+let selSvc=null,curPrio=1,curTicket=null,trackIv=null;
+function selectSvc(key,name){
+  selSvc=key;
+  document.querySelectorAll('.svc-card').forEach(c=>c.classList.remove('selected'));
+  document.getElementById('card-'+key).classList.add('selected');
+  document.getElementById('svc-name-lbl').textContent=name;
+  document.getElementById('join-form').style.display='block';
+  document.getElementById('join-form').scrollIntoView({behavior:'smooth'});
+}
+function setPrio(p){
+  curPrio=p;
+  [1,2,3].forEach(i=>{
+    const b=document.getElementById('pb'+i);
+    b.className='prio-btn'+(i===p?' p'+p:'');
+  });
+}
+function cancelJoin(){
+  document.getElementById('join-form').style.display='none';
+  selSvc=null;
+  document.querySelectorAll('.svc-card').forEach(c=>c.classList.remove('selected'));
+}
+async function joinQueue(){
+  const errEl=document.getElementById('join-err');
+  const errMsg=document.getElementById('join-err-msg');
+  errEl.style.display='none';
+  const res=await fetch('/join',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({service:selSvc,priority:curPrio,notes:document.getElementById('notes').value})});
+  const d=await res.json();
+  if(!d.success){errMsg.textContent=d.error;errEl.style.display='flex';return;}
+  curTicket=d.ticket_no;
+  document.getElementById('res-no').textContent=d.ticket_no;
+  document.getElementById('res-svc').textContent=d.service;
+  document.getElementById('res-prio').textContent=d.priority;
+  document.getElementById('res-wait').textContent=d.est_wait+' min';
+  document.getElementById('join-form').style.display='none';
+  document.getElementById('ticket-result').style.display='block';
+  document.querySelector('.card:has(#svc-grid)').style.display='none';
+}
+function startTracking(){trackTicket(curTicket);}
+function trackTicket(tn){
+  curTicket=tn;
+  document.getElementById('track-lbl').textContent=tn;
+  document.getElementById('status-section').style.display='block';
+  document.getElementById('status-section').scrollIntoView({behavior:'smooth'});
+  fetchStatus();
+  if(trackIv)clearInterval(trackIv);
+  trackIv=setInterval(fetchStatus,10000);
+}
+async function fetchStatus(){
+  const r=await fetch('/status/'+curTicket);const d=await r.json();
+  const el=document.getElementById('status-body');
+  const colors={waiting:'var(--warn)',serving:'var(--success)',completed:'var(--primary)',no_show:'var(--danger)',cancelled:'var(--muted)'};
+  el.innerHTML=`
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:.6rem;">
+      <div style="font-size:1.5rem;font-weight:900;color:${colors[d.status]||'var(--muted)'};text-transform:uppercase;letter-spacing:.05em;">
+        ${d.status==='serving'?'NOW SERVING':d.status.replace('_',' ').toUpperCase()}
+      </div>
+      ${d.status==='waiting'?`<span class="badge bo">Position #${d.position} in queue</span>`:''}
+      ${d.counter?`<span class="badge bb">Counter ${d.counter}</span>`:''}
+    </div>
+    <p style="color:var(--muted);font-size:.78rem;">Auto-refreshes every 10 seconds</p>`;
+  document.getElementById('fb-panel').style.display=(d.status==='completed'&&!d.already_rated)?'block':'none';
+  document.getElementById('requeue-panel').style.display=(d.status==='no_show')?'block':'none';
+  if(['completed','no_show','cancelled'].includes(d.status))clearInterval(trackIv);
+}
+function resetAll(){
+  if(trackIv)clearInterval(trackIv);curTicket=null;selSvc=null;
+  ['ticket-result','status-section'].forEach(id=>document.getElementById(id).style.display='none');
+  const sg=document.querySelector('.card:has(#svc-grid)');if(sg)sg.style.display='block';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+async function requeue(){
+  const res=await fetch('/requeue/'+curTicket,{method:'POST'});
+  const d=await res.json();
+  if(d.success){curTicket=d.ticket_no;document.getElementById('track-lbl').textContent=d.ticket_no;
+    document.getElementById('requeue-panel').style.display='none';fetchStatus();}
+  else alert(d.error);
+}
+async function requeueDirect(tn){
+  const res=await fetch('/requeue/'+tn,{method:'POST'});
+  const d=await res.json();
+  if(d.success){alert('Re-queued! New ticket: '+d.ticket_no);location.reload();}
+  else alert(d.error);
+}
+let selStar=0;
+function setStar(n){
+  selStar=n;
+  for(let i=1;i<=5;i++){
+    document.getElementById('star-'+i).classList.toggle('lit',i<=n);
+  }
+}
+async function submitFeedback(){
+  if(!selStar){alert('Please select a star rating.');return;}
+  const res=await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ticket_no:curTicket,rating:selStar,comment:document.getElementById('fb-comment').value})});
+  const d=await res.json();
+  if(d.success){
+    document.getElementById('fb-thanks').style.display='flex';
+    document.getElementById('stars-row').style.display='none';
+    document.querySelector('#fb-panel .btn').style.display='none';
+  }
+}
+
+</script>
+{% endblock %}

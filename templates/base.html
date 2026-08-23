@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en" id="html-root">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}SmartQueue{% endblock %}</title>
+<style>
+:root {
+  --bg:#f0f4f8;--surface:#fff;--surface2:#f7fafc;--border:#e2e8f0;
+  --text:#2d3748;--muted:#718096;--primary:#2b6cb0;--primary-d:#2c5282;
+  --primary-l:#ebf8ff;--accent:#1a365d;--success:#276749;--danger:#9b2c2c;
+  --warn:#9c4221;--radius:12px;--shadow:0 2px 10px rgba(0,0,0,.08);
+}
+html.dark {
+  --bg:#0f1117;--surface:#1a1f2e;--surface2:#151924;--border:#2d3748;
+  --text:#e2e8f0;--muted:#a0aec0;--primary:#63b3ed;--primary-d:#90cdf4;
+  --primary-l:#1a2744;--accent:#90cdf4;--success:#68d391;--danger:#fc8181;
+  --warn:#fbd38d;--shadow:0 2px 10px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .3s,color .3s;}
+
+/* ── NAV ─────────────────────────────────────────────────────── */
+nav {
+  background:var(--surface);border-bottom:1px solid var(--border);
+  padding:.6rem 1.5rem;display:flex;align-items:center;gap:.8rem;
+  box-shadow:var(--shadow);position:sticky;top:0;z-index:200;flex-wrap:wrap;
+}
+.nav-brand {
+  display:flex;align-items:center;gap:.55rem;text-decoration:none;
+  font-size:1.05rem;font-weight:800;color:var(--accent);letter-spacing:-.01em;
+}
+.nav-brand-icon {
+  width:34px;height:34px;background:var(--accent);border-radius:9px;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  box-shadow:0 2px 8px rgba(26,54,93,.25);
+}
+.nav-brand-icon svg { width:18px;height:18px;stroke:white;stroke-width:2; }
+html.dark .nav-brand-icon { background:var(--primary); box-shadow:0 2px 8px rgba(99,179,237,.2); }
+
+.nav-role {
+  font-size:.65rem;background:var(--primary);color:white;
+  padding:.18rem .55rem;border-radius:999px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.04em;
+}
+.nav-role.admin  { background:#6b46c1; }
+.nav-role.staff  { background:#276749; }
+
+.nav-links { display:flex;align-items:center;gap:.15rem;margin-left:auto;flex-wrap:wrap; }
+.nav-links a {
+  color:var(--muted);text-decoration:none;padding:.38rem .62rem;border-radius:7px;
+  font-size:.82rem;font-weight:500;transition:all .18s;
+  display:flex;align-items:center;gap:.38rem;
+}
+.nav-links a:hover,.nav-links a.active { background:var(--primary-l);color:var(--primary); }
+.nav-links a .nav-icon { width:15px;height:15px;flex-shrink:0; }
+.nav-links a .nav-icon svg { width:15px;height:15px; }
+
+.notif-wrap { position:relative;display:inline-flex; }
+.notif-badge {
+  position:absolute;top:-5px;right:-6px;
+  background:#e53e3e;color:#fff;font-size:.58rem;font-weight:800;
+  padding:.05rem .3rem;border-radius:999px;min-width:16px;text-align:center;
+  border:2px solid var(--surface);
+}
+
+.nav-icon-btn {
+  background:var(--surface2);border:1px solid var(--border);color:var(--text);
+  width:32px;height:32px;border-radius:7px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .18s;flex-shrink:0;
+}
+.nav-icon-btn:hover { background:var(--primary-l);border-color:var(--primary);color:var(--primary); }
+.nav-icon-btn svg { width:15px;height:15px; }
+
+/* ── FLASH ───────────────────────────────────────────────────── */
+.flash-success{background:#f0fff4;color:#276749;border:1px solid #c6f6d5;padding:.7rem 1rem;border-radius:8px;margin-bottom:1rem;font-size:.88rem;display:flex;align-items:center;gap:.5rem;}
+html.dark .flash-success{background:#0f2a0f;color:#68d391;border-color:#276749;}
+
+/* ── CONTAINER ───────────────────────────────────────────────── */
+.container{max-width:1120px;margin:0 auto;padding:1.4rem 1rem;}
+.page-title{font-size:1.4rem;font-weight:800;color:var(--accent);margin-bottom:1.3rem;display:flex;align-items:center;gap:.6rem;}
+.page-title svg{width:22px;height:22px;stroke:var(--accent);}
+
+/* ── CARD ────────────────────────────────────────────────────── */
+.card{background:var(--surface);border-radius:var(--radius);padding:1.4rem;box-shadow:var(--shadow);border:1px solid var(--border);}
+
+/* ── BUTTONS ─────────────────────────────────────────────────── */
+.btn{display:inline-flex;align-items:center;gap:.38rem;padding:.55rem 1.2rem;border:none;border-radius:8px;cursor:pointer;font-size:.88rem;font-weight:600;transition:all .18s;text-decoration:none;}
+.btn svg{width:15px;height:15px;flex-shrink:0;}
+.btn-primary{background:var(--primary);color:#fff;}.btn-primary:hover{filter:brightness(1.08);}
+.btn-outline{background:transparent;border:2px solid var(--primary);color:var(--primary);}.btn-outline:hover{background:var(--primary-l);}
+.btn-danger{background:#e53e3e;color:#fff;}.btn-success{background:#38a169;color:#fff;}
+.btn-purple{background:#6b46c1;color:#fff;}.btn-orange{background:#c05621;color:#fff;}
+.btn-grey{background:var(--surface2);border:1px solid var(--border);color:var(--text);}
+.btn-sm{padding:.3rem .7rem;font-size:.78rem;}
+
+/* ── FORMS ───────────────────────────────────────────────────── */
+.form-group{margin-bottom:.9rem;}
+label{display:block;font-size:.83rem;font-weight:600;margin-bottom:.3rem;color:var(--muted);}
+.input-icon-wrap{position:relative;}
+.input-icon-wrap svg{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);width:15px;height:15px;stroke:var(--muted);pointer-events:none;}
+.input-icon-wrap input{padding-left:2.3rem;}
+input,select,textarea{width:100%;padding:.55rem .85rem;border:1px solid var(--border);border-radius:8px;font-size:.92rem;background:var(--surface);color:var(--text);transition:border .2s;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);}
+textarea{resize:vertical;height:75px;}
+
+/* ── ALERTS ──────────────────────────────────────────────────── */
+.alert{padding:.75rem 1rem;border-radius:8px;margin-bottom:.9rem;font-size:.88rem;font-weight:500;display:flex;align-items:flex-start;gap:.5rem;}
+.alert svg{width:16px;height:16px;flex-shrink:0;margin-top:.1rem;}
+.alert-error{background:#fff5f5;color:#9b2c2c;border:1px solid #fed7d7;}
+.alert-success{background:#f0fff4;color:#276749;border:1px solid #c6f6d5;}
+html.dark .alert-error{background:#2d1515;color:#fc8181;border-color:#9b2c2c;}
+html.dark .alert-success{background:#142014;color:#68d391;border-color:#276749;}
+
+/* ── BADGES ──────────────────────────────────────────────────── */
+.badge{display:inline-flex;align-items:center;gap:.28rem;padding:.2rem .6rem;border-radius:999px;font-size:.7rem;font-weight:700;}
+.badge svg{width:11px;height:11px;}
+.bg{background:#c6f6d5;color:#276749;}.bo{background:#feebc8;color:#9c4221;}
+.br{background:#fed7d7;color:#9b2c2c;}.bb{background:#bee3f8;color:#2b6cb0;}
+.bp{background:#e9d8fd;color:#553c9a;}
+html.dark .bg{background:#1a3a1a;color:#68d391;}html.dark .bo{background:#3a2a10;color:#fbd38d;}
+html.dark .br{background:#3a1010;color:#fc8181;}html.dark .bb{background:#1a2a3a;color:#63b3ed;}
+html.dark .bp{background:#2d1f4a;color:#b794f4;}
+
+/* ── TABLES ──────────────────────────────────────────────────── */
+.table-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:.84rem;}
+th{background:var(--surface2);color:var(--primary);padding:.65rem .85rem;text-align:left;font-weight:700;border-bottom:2px solid var(--border);}
+td{padding:.55rem .85rem;border-bottom:1px solid var(--border);}
+tr:last-child td{border:none;}tr:hover td{background:var(--surface2);}
+hr{border:none;border-top:1px solid var(--border);margin:1.2rem 0;}
+
+/* ── ICON UTILITY ────────────────────────────────────────────── */
+.icon{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+.icon svg{display:block;}
+.icon-sm svg{width:14px;height:14px;}
+.icon-md svg{width:18px;height:18px;}
+.icon-lg svg{width:24px;height:24px;}
+</style>
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+
+<!-- ═══ NAVBAR ═══════════════════════════════════════════════════════════ -->
+<nav>
+  <!-- Brand / Logo -->
+  <a href="{% if session.role in ('admin','staff') %}/staff{% else %}/{% endif %}" class="nav-brand">
+    <div class="nav-brand-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+        <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+      </svg>
+    </div>
+    SmartQueue
+  </a>
+
+  <!-- Role badge -->
+  {% if session.get('role') %}
+    <span class="nav-role {{ session.role }}">{{ session.role }}</span>
+  {% endif %}
+
+  <!-- Nav links -->
+  <div class="nav-links">
+
+    {% if session.get('role') == 'student' %}
+      <!-- Student nav -->
+      <a href="/" {% if request.path=='/' %}class="active"{% endif %}>
+        <span class="nav-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
+        Home
+      </a>
+      <a href="/appointments" {% if '/appointments' in request.path %}class="active"{% endif %}>
+        <span class="nav-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+        Appointments
+      </a>
+      <a href="/notifications" {% if '/notifications' in request.path %}class="active"{% endif %}>
+        <span class="notif-wrap">
+          <span class="nav-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>
+          <span class="notif-badge" id="notif-badge" style="display:none"></span>
+        </span>
+        Alerts
+      </a>
+
+    {% elif session.get('role') in ('staff','admin') %}
+      <!-- Staff nav -->
+      <a href="/staff" {% if request.path=='/staff' %}class="active"{% endif %}>
+        <span class="nav-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></span>
+        Queue Mgmt
+      </a>
+      <a href="/analytics" {% if '/analytics' in request.path %}class="active"{% endif %}>
+        <span class="nav-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg></span>
+        Analytics
+      </a>
+      <a href="/display" target="_blank">
+        <span class="nav-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>
+        Display
+      </a>
+
+      {% if session.get('role') == 'admin' %}
+      <!-- Admin-only nav -->
+      <a href="/admin/users" {% if '/admin/users' in request.path %}class="active"{% endif %}>
+        <span class="nav-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+        Users
+      </a>
+      <a href="/admin/announcements" {% if '/admin/announcements' in request.path %}class="active"{% endif %}>
+        <span class="nav-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg></span>
+        Notices
+      </a>
+      <a href="/admin/settings" {% if '/admin/settings' in request.path %}class="active"{% endif %}>
+        <span class="nav-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+        Settings
+      </a>
+      <a href="/admin/counters" {% if '/admin/counters' in request.path %}class="active"{% endif %}>
+        <span class="nav-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>
+        Counters
+      </a>
+      <a href="/admin/audit" {% if '/admin/audit' in request.path %}class="active"{% endif %}>
+        <span class="nav-icon icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+        Audit
+      </a>
+      {% endif %}
+    {% endif %}
+
+    <!-- Auth links -->
+    {% if session.get('user_id') %}
+      <a href="/logout" class="btn btn-outline btn-sm">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </a>
+    {% else %}
+      <a href="/login">Login</a>
+      <a href="/register">Register</a>
+    {% endif %}
+  </div>
+
+  <!-- Dark mode toggle -->
+  <button class="nav-icon-btn" onclick="toggleDark()" id="dark-btn" title="Toggle dark mode">
+    <svg id="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    <svg id="icon-sun" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+  </button>
+</nav>
+
+<!-- ═══ CONTENT ══════════════════════════════════════════════════════════ -->
+<div class="container">
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in msgs %}
+      <div class="flash-{{ cat }}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>
+        {{ msg }}
+      </div>
+    {% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</div>
+
+<script>
+function toggleDark(){
+  const h=document.getElementById('html-root');
+  h.classList.toggle('dark');
+  const dark=h.classList.contains('dark');
+  localStorage.setItem('theme',dark?'dark':'light');
+  document.getElementById('icon-moon').style.display=dark?'none':'block';
+  document.getElementById('icon-sun').style.display=dark?'block':'none';
+}
+(function(){
+  if(localStorage.getItem('theme')==='dark'){
+    document.getElementById('html-root').classList.add('dark');
+    document.getElementById('icon-moon').style.display='none';
+    document.getElementById('icon-sun').style.display='block';
+  }
+})();
+{% if session.get('role')=='student' %}
+async function pollBadge(){
+  try{
+    const r=await fetch('/api/unread_count');const d=await r.json();
+    const b=document.getElementById('notif-badge');
+    if(b){b.textContent=d.count;b.style.display=d.count>0?'inline':'none';}
+  }catch(e){}
+}
+pollBadge();setInterval(pollBadge,30000);
+{% endif %}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

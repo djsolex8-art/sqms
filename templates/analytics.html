@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Analytics — SmartQueue{% endblock %}
+{% block extra_head %}
+<style>
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem;margin-bottom:1.4rem;}
+.kpi{background:var(--surface);border-radius:var(--radius);padding:1.1rem;text-align:center;border:1px solid var(--border);}
+.kpi .v{font-size:2rem;font-weight:900;color:var(--primary);}
+.kpi .l{font-size:.78rem;color:var(--muted);margin-top:.2rem;}
+.bar-w{background:var(--border);border-radius:999px;height:7px;min-width:60px;}
+.bar-f{background:var(--primary);height:7px;border-radius:999px;}
+.heat-cell{width:100%;text-align:center;border-radius:4px;padding:.35rem .2rem;font-size:.7rem;font-weight:700;cursor:default;}
+</style>
+{% endblock %}
+{% block content %}
+<h1 class="page-title"><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg> Analytics — {{ today }}</h1>
+
+<div class="kpi-grid">
+  <div class="kpi"><div class="v">{{ total_today }}</div><div class="l">Served Today</div></div>
+  <div class="kpi"><div class="v">{{ no_shows }}</div><div class="l">No-Shows</div></div>
+  <div class="kpi"><div class="v">{{ stats.values()|sum(attribute='waiting_now') }}</div><div class="l">Waiting Now</div></div>
+  <div class="kpi">
+    <div class="v" style="color:#f6c90e;font-size:1.4rem;">{% for i in range(overall_rating|int) %}<svg style="width:1em;height:1em;vertical-align:-.15em;color:#d69e2e" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>{% endfor %}</div>
+    <div class="v">{{ overall_rating }}</div>
+    <div class="l">Avg Rating ({{ total_feedback }} reviews)</div>
+  </div>
+</div>
+
+<!-- Service table -->
+<div class="card" style="margin-bottom:1.2rem;">
+  <h2 style="color:var(--primary);margin-bottom:.9rem;font-size:1rem;">Per-Service Breakdown</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Service</th><th>Served</th><th>Waiting</th><th>Avg Wait</th><th>Avg Service</th><th>Rating</th><th>Load</th></tr></thead>
+      <tbody>
+        {% set mx=stats.values()|map(attribute='served_today')|max or 1 %}
+        {% for k,s in stats.items() %}
+        <tr>
+          <td><strong>{{ s.name }}</strong></td>
+          <td>{{ s.served_today }}</td><td>{{ s.waiting_now }}</td>
+          <td>{{ s.avg_wait_min }} min</td><td>{{ s.avg_serve_min }} min</td>
+          <td style="color:#f6c90e;">{% if s.avg_rating %}{% for i in range(s.avg_rating|int) %}<svg style="width:1em;height:1em;vertical-align:-.15em;color:#d69e2e" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>{% endfor %} {{ s.avg_rating }}{% else %}—{% endif %}</td>
+          <td style="min-width:100px;"><div class="bar-w"><div class="bar-f" style="width:{{ ((s.served_today/mx)*100)|int }}%"></div></div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Heatmap -->
+<div class="card" style="margin-bottom:1.2rem;">
+  <h2 style="color:var(--primary);margin-bottom:.9rem;font-size:1rem;"><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg> Peak Hours Heatmap (Today)</h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th style="min-width:140px;">Service</th>
+        {% for h in range(8,18) %}<th>{{ "%02d:00"|format(h) }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for k,v in services.items() %}
+        <tr>
+          <td style="font-size:.8rem;">{{ v.name }}</td>
+          {% set row_max = (hourly_data.values()|map(attribute=k)|max) or 1 %}
+          {% for h in range(8,18) %}
+          {% set cnt=hourly_data.get(h,{})[k]|default(0) %}
+          {% set intensity=(cnt/row_max*100)|int if row_max else 0 %}
+          <td><div class="heat-cell"
+               style="background:{% if cnt==0 %}var(--surface2){% elif intensity<33 %}#bee3f8{% elif intensity<66 %}#3182ce{% else %}#1a365d{% endif %};
+                      color:{% if intensity>=66 %}white{% else %}var(--text){% endif %};">
+            {{ cnt if cnt > 0 else '' }}
+          </div></td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size:.75rem;color:var(--muted);margin-top:.6rem;">
+    <span style="display:inline-block;width:12px;height:12px;background:var(--surface2);border-radius:2px;margin-right:3px;"></span>0 &nbsp;
+    <span style="display:inline-block;width:12px;height:12px;background:#bee3f8;border-radius:2px;margin-right:3px;"></span>Low &nbsp;
+    <span style="display:inline-block;width:12px;height:12px;background:#3182ce;border-radius:2px;margin-right:3px;"></span>Medium &nbsp;
+    <span style="display:inline-block;width:12px;height:12px;background:#1a365d;border-radius:2px;margin-right:3px;"></span>High
+  </p>
+</div>
+
+<div style="display:flex;gap:.8rem;">
+  <a href="/admin/export/csv" class="btn btn-primary"><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export CSV</a>
+  <a href="/admin/export/feedback_csv" class="btn btn-outline"><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Feedback CSV</a>
+</div>
+{% endblock %}

@@ -1,0 +1,103 @@
+<!-- display.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Queue Display Board</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0a0e1a; color: white;
+         min-height: 100vh; display: flex; flex-direction: column; }
+  header { background: #1a365d; padding: 1.2rem 2rem; text-align: center;
+           border-bottom: 3px solid #2b6cb0; }
+  header h1 { font-size: 2rem; letter-spacing: .05rem; }
+  header p  { color: #90cdf4; margin-top: .3rem; }
+  .main { flex: 1; display: grid; grid-template-columns: 2fr 1fr; gap: 0; }
+
+  /* Serving panel */
+  .serving-panel { padding: 2rem; border-right: 1px solid #2d3748; }
+  .serving-panel h2 { color: #90cdf4; margin-bottom: 1.5rem; font-size: 1.2rem; }
+  .ticket-display { background: #1a365d; border-radius: 12px; padding: 2rem;
+                    margin-bottom: 1rem; border-left: 5px solid #63b3ed;
+                    display: flex; align-items: center; gap: 2rem; }
+  .ticket-no { font-size: 3rem; font-weight: 900; color: #63b3ed; min-width: 160px; }
+  .ticket-details { flex: 1; }
+  .ticket-details .name { font-size: 1.4rem; font-weight: 700; }
+  .ticket-details .svc  { color: #a0aec0; margin-top: .3rem; }
+  .counter-badge { background: #2b6cb0; color: white; padding: .5rem 1rem;
+                   border-radius: 8px; font-size: 1rem; font-weight: 700; }
+  .empty-board { text-align: center; color: #4a5568; font-size: 1.5rem; padding: 4rem; }
+
+  /* Counters panel */
+  .counters-panel { padding: 2rem; background: #111827; }
+  .counters-panel h2 { color: #90cdf4; margin-bottom: 1.5rem; font-size: 1.2rem; }
+  .counter-item { background: #1f2937; border-radius: 8px; padding: 1rem;
+                  margin-bottom: .8rem; display: flex; justify-content: space-between; align-items: center; }
+  .c-no { font-size: 1.1rem; font-weight: 700; color: #63b3ed; }
+  .c-ticket { font-size: 1.3rem; font-weight: 900; color: #68d391; }
+  .c-idle { color: #4a5568; font-size: .9rem; }
+
+  footer { background: #0d1117; text-align: center; padding: .8rem;
+           color: #4a5568; font-size: .8rem; border-top: 1px solid #1f2937; }
+  .time { font-size: 2rem; font-weight: 700; color: #63b3ed; }
+  .blink { animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+<header>
+  <h1><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg> Student Service Center — Now Serving</h1>
+  <p id="clock"></p>
+</header>
+
+<div class="main">
+  <div class="serving-panel">
+    <h2><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> Currently Being Served</h2>
+    <div id="serving-list"><div class="empty-board">No students currently being served</div></div>
+  </div>
+  <div class="counters-panel">
+    <h2><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> Counter Status</h2>
+    <div id="counters-list"></div>
+  </div>
+</div>
+
+<footer>Auto-refreshes every 5 seconds &nbsp;|&nbsp; Smart Queue Management System</footer>
+
+<script>
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleDateString('en-NG', {weekday:'long',year:'numeric',month:'long',day:'numeric'}) +
+    ' — ' + now.toLocaleTimeString();
+}
+setInterval(updateClock, 1000); updateClock();
+
+async function refresh() {
+  const data = await fetch('/api/display_data').then(r => r.json());
+  const sl = document.getElementById('serving-list');
+  const cl = document.getElementById('counters-list');
+
+  sl.innerHTML = data.serving.length ? data.serving.map(t => `
+    <div class="ticket-display">
+      <div class="ticket-no">${t.ticket_no}</div>
+      <div class="ticket-details">
+        <div class="name">${t.student_name}</div>
+      </div>
+      <div class="counter-badge">Counter ${t.counter}</div>
+    </div>
+  `).join('') : '<div class="empty-board">No students currently being served</div>';
+
+  cl.innerHTML = data.counters.map(c => `
+    <div class="counter-item">
+      <span class="c-no">Counter ${c.counter_no}</span>
+      ${c.current_ticket
+        ? `<span class="c-ticket">${c.current_ticket}</span>`
+        : `<span class="c-idle">Available</span>`}
+    </div>
+  `).join('');
+}
+
+refresh(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>

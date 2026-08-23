@@ -1,0 +1,469 @@
+{% extends "base.html" %}
+{% block title %}User Management — SmartQueue{% endblock %}
+{% block extra_head %}
+<style>
+.modal-overlay {
+  display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,.55);z-index:999;
+  align-items:center;justify-content:center;
+}
+.modal-box {
+  background:var(--surface);border-radius:var(--radius);
+  padding:1.6rem;width:480px;max-width:95vw;
+  border:1px solid var(--border);
+  box-shadow:0 16px 48px rgba(0,0,0,.2);
+}
+</style>
+{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;justify-content:space-between;
+            margin-bottom:1.2rem;flex-wrap:wrap;gap:.8rem;">
+  <h1 class="page-title" style="margin:0;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+    User Management
+  </h1>
+  <button class="btn btn-primary" onclick="openModal('create-modal')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+         stroke-linecap="round" stroke-linejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19"/>
+      <line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+    Create User
+  </button>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th><th>Name</th><th>Email</th>
+          <th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr id="row-{{ u.user_id }}">
+          <td><strong>{{ u.user_id }}</strong></td>
+          <td>{{ u.full_name }}</td>
+          <td style="font-size:.8rem;color:var(--muted);">{{ u.email or '—' }}</td>
+          <td>
+            <span class="badge
+              {% if u.role=='admin' %}bp
+              {% elif u.role=='staff' %}bg
+              {% else %}bb{% endif %}">
+              {{ u.role }}
+            </span>
+          </td>
+          <td>
+            <span class="badge {% if u.is_active %}bg{% else %}br{% endif %}"
+                  id="status-{{ u.user_id }}">
+              {{ 'Active' if u.is_active else 'Inactive' }}
+            </span>
+          </td>
+          <td style="font-size:.78rem;color:var(--muted);">
+            {{ u.last_login[:16] if u.last_login else 'Never' }}
+          </td>
+          <td>
+            {% if u.user_id != session.user_id %}
+            <div style="display:flex;gap:.4rem;flex-wrap:wrap;">
+              <button class="btn btn-sm
+                {% if u.is_active %}btn-danger{% else %}btn-success{% endif %}"
+                id="toggle-btn-{{ u.user_id }}"
+                onclick="toggleUser('{{ u.user_id }}', {{ 1 if u.is_active else 0 }})">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                     style="width:13px;height:13px;">
+                  {% if u.is_active %}
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                  {% else %}
+                  <polyline points="20 6 9 17 4 12"/>
+                  {% endif %}
+                </svg>
+                {{ 'Deactivate' if u.is_active else 'Activate' }}
+              </button>
+              <button class="btn btn-sm btn-outline"
+                      onclick="showReset('{{ u.user_id }}', '{{ u.full_name }}')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                     style="width:13px;height:13px;">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                Reset PW
+              </button>
+            </div>
+            {% else %}
+            <span style="color:var(--muted);font-size:.78rem;">(your account)</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ CREATE USER MODAL ══════════════════════════════════ -->
+<div class="modal-overlay" id="create-modal">
+  <div class="modal-box">
+    <h2 style="color:var(--accent);margin-bottom:1.1rem;display:flex;
+               align-items:center;gap:.5rem;font-size:1.1rem;">
+      <svg style="width:18px;height:18px;stroke:var(--accent)" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+        <circle cx="12" cy="7" r="4"/>
+        <line x1="19" y1="8" x2="19" y2="14"/>
+        <line x1="22" y1="11" x2="16" y2="11"/>
+      </svg>
+      Create New User
+    </h2>
+
+    <div id="cu-err" class="alert alert-error" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"
+           style="width:15px;height:15px;flex-shrink:0">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span id="cu-err-msg"></span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.8rem;">
+      <div class="form-group">
+        <label>User / Student ID *</label>
+        <input id="cu-id" placeholder="e.g. STU/2024/001">
+      </div>
+      <div class="form-group">
+        <label>Full Name *</label>
+        <input id="cu-name" placeholder="Full name">
+      </div>
+      <div class="form-group">
+        <label>Email Address</label>
+        <input type="email" id="cu-email" placeholder="email@university.edu">
+      </div>
+      <div class="form-group">
+        <label>Phone Number</label>
+        <input id="cu-phone" placeholder="+234...">
+      </div>
+      <div class="form-group">
+        <label>Role *</label>
+        <select id="cu-role">
+          <option value="student">Student</option>
+          <option value="staff">Staff</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Password * (min 8 chars)</label>
+        <input type="password" id="cu-pw" placeholder="Password">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:.8rem;margin-top:.8rem;">
+      <button class="btn btn-outline" onclick="closeModal('create-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="createUser()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Create User
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ RESET PASSWORD MODAL ══════════════════════════════ -->
+<div class="modal-overlay" id="reset-modal">
+  <div class="modal-box" style="width:380px;">
+    <h2 style="color:var(--accent);margin-bottom:.4rem;font-size:1.1rem;
+               display:flex;align-items:center;gap:.5rem;">
+      <svg style="width:18px;height:18px;stroke:var(--accent)" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+      Reset Password
+    </h2>
+    <p style="font-size:.83rem;color:var(--muted);margin-bottom:1rem;">
+      Resetting password for: <strong id="reset-name-lbl" style="color:var(--text);"></strong>
+    </p>
+
+    <div class="form-group">
+      <label>New Password (min 8 characters)</label>
+      <input type="password" id="rp-pw" placeholder="Enter new password"
+             onkeydown="if(event.key==='Enter') doReset()">
+    </div>
+    <div class="form-group">
+      <label>Confirm Password</label>
+      <input type="password" id="rp-pw2" placeholder="Confirm new password"
+             onkeydown="if(event.key==='Enter') doReset()">
+    </div>
+
+    <div id="rp-err" class="alert alert-error" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"
+           style="width:15px;height:15px;flex-shrink:0">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span id="rp-err-msg"></span>
+    </div>
+    <div id="rp-ok" class="alert alert-success" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"
+           style="width:15px;height:15px;flex-shrink:0">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+      <span>Password reset successfully.</span>
+    </div>
+
+    <div style="display:flex;gap:.8rem;margin-top:.8rem;">
+      <button class="btn btn-outline" onclick="closeModal('reset-modal')">Cancel</button>
+      <button class="btn btn-primary" id="rp-btn" onclick="doReset()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+          <polyline points="17 21 17 13 7 13 7 21"/>
+          <polyline points="7 3 7 8 15 8"/>
+        </svg>
+        Reset Password
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DEACTIVATE CONFIRM MODAL ═════════════════════════════ -->
+<div class="modal-overlay" id="toggle-modal">
+  <div class="modal-box" style="width:380px;">
+    <h2 style="font-size:1.1rem;margin-bottom:.6rem;display:flex;
+               align-items:center;gap:.5rem;" id="toggle-title">
+      <svg style="width:18px;height:18px;" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round"
+           stroke-linejoin="round" id="toggle-icon">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+      </svg>
+      Confirm
+    </h2>
+    <p style="font-size:.88rem;color:var(--muted);margin-bottom:1.2rem;"
+       id="toggle-msg"></p>
+
+    <div id="tg-err" class="alert alert-error" style="display:none;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"
+           style="width:15px;height:15px;flex-shrink:0">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span id="tg-err-msg"></span>
+    </div>
+
+    <div style="display:flex;gap:.8rem;">
+      <button class="btn btn-outline" onclick="closeModal('toggle-modal')">Cancel</button>
+      <button class="btn btn-danger" id="toggle-confirm-btn" onclick="confirmToggle()">
+        Confirm
+      </button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+/* ── Modal helpers ─────────────────────────────────────────── */
+function openModal(id){
+  const m = document.getElementById(id);
+  m.style.display = 'flex';
+}
+function closeModal(id){
+  document.getElementById(id).style.display = 'none';
+}
+// Close on backdrop click
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) m.style.display = 'none'; });
+});
+
+/* ── Toast ─────────────────────────────────────────────────── */
+function showToast(msg, isError=false){
+  let t = document.getElementById('admin-toast');
+  if (!t){
+    t = document.createElement('div'); t.id = 'admin-toast';
+    t.style.cssText = `position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);
+      padding:.7rem 1.4rem;border-radius:8px;font-size:.88rem;font-weight:600;
+      z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.2);transition:opacity .3s;`;
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.background = isError ? '#e53e3e' : '#276749';
+  t.style.color = 'white';
+  t.style.opacity = '1';
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.style.opacity = '0', 3500);
+}
+
+/* ── Create User ───────────────────────────────────────────── */
+async function createUser(){
+  const errEl  = document.getElementById('cu-err');
+  const errMsg = document.getElementById('cu-err-msg');
+  errEl.style.display = 'none';
+
+  const payload = {
+    user_id:   document.getElementById('cu-id').value.trim(),
+    full_name: document.getElementById('cu-name').value.trim(),
+    email:     document.getElementById('cu-email').value.trim(),
+    phone:     document.getElementById('cu-phone').value.trim(),
+    role:      document.getElementById('cu-role').value,
+    password:  document.getElementById('cu-pw').value,
+  };
+
+  if (!payload.user_id || !payload.full_name || !payload.password){
+    errMsg.textContent = 'User ID, Full Name and Password are required.';
+    errEl.style.display = 'flex'; return;
+  }
+  if (payload.password.length < 8){
+    errMsg.textContent = 'Password must be at least 8 characters.';
+    errEl.style.display = 'flex'; return;
+  }
+
+  try {
+    const res = await fetch('/admin/users/create', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await res.json();
+    if (d.success){
+      closeModal('create-modal');
+      showToast(`User "${payload.user_id}" created successfully.`);
+      setTimeout(() => location.reload(), 900);
+    } else {
+      errMsg.textContent = d.error || 'Failed to create user.';
+      errEl.style.display = 'flex';
+    }
+  } catch(e){
+    errMsg.textContent = 'Network error. Please try again.';
+    errEl.style.display = 'flex';
+  }
+}
+
+/* ── Toggle User (Deactivate / Activate) ───────────────────── */
+let pendingToggleUid    = null;
+let pendingToggleActive = null;
+
+function toggleUser(uid, isActive){
+  pendingToggleUid    = uid;
+  pendingToggleActive = isActive;
+
+  const action = isActive ? 'Deactivate' : 'Activate';
+  const title  = document.getElementById('toggle-title');
+  const msg    = document.getElementById('toggle-msg');
+  const btn    = document.getElementById('toggle-confirm-btn');
+  const icon   = document.getElementById('toggle-icon');
+
+  title.childNodes[title.childNodes.length - 1].textContent = ` ${action} Account`;
+  msg.textContent = isActive
+    ? `Are you sure you want to deactivate "${uid}"? They will not be able to log in until reactivated.`
+    : `Reactivate "${uid}"? They will be able to log in again.`;
+
+  btn.className = isActive ? 'btn btn-danger' : 'btn btn-success';
+  btn.textContent = action;
+  document.getElementById('tg-err').style.display = 'none';
+  openModal('toggle-modal');
+}
+
+async function confirmToggle(){
+  const errEl  = document.getElementById('tg-err');
+  const errMsg = document.getElementById('tg-err-msg');
+  errEl.style.display = 'none';
+
+  try {
+    const res = await fetch('/admin/users/toggle', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({uid: pendingToggleUid})
+    });
+    const d = await res.json();
+    if (d.success){
+      closeModal('toggle-modal');
+      const action = pendingToggleActive ? 'deactivated' : 'activated';
+      showToast(`Account "${pendingToggleUid}" ${action}.`);
+      setTimeout(() => location.reload(), 900);
+    } else {
+      errMsg.textContent = d.error || 'Action failed.';
+      errEl.style.display = 'flex';
+    }
+  } catch(e){
+    errMsg.textContent = 'Network error. Please try again.';
+    errEl.style.display = 'flex';
+  }
+}
+
+/* ── Reset Password ────────────────────────────────────────── */
+let resetUid = null;
+
+function showReset(uid, fullName){
+  resetUid = uid;
+  document.getElementById('reset-name-lbl').textContent = fullName + ' (' + uid + ')';
+  document.getElementById('rp-pw').value  = '';
+  document.getElementById('rp-pw2').value = '';
+  document.getElementById('rp-err').style.display = 'none';
+  document.getElementById('rp-ok').style.display  = 'none';
+  document.getElementById('rp-btn').style.display = 'inline-flex';
+  openModal('reset-modal');
+  setTimeout(() => document.getElementById('rp-pw').focus(), 100);
+}
+
+async function doReset(){
+  const pw   = document.getElementById('rp-pw').value;
+  const pw2  = document.getElementById('rp-pw2').value;
+  const errEl  = document.getElementById('rp-err');
+  const errMsg = document.getElementById('rp-err-msg');
+  errEl.style.display = 'none';
+
+  if (pw.length < 8){
+    errMsg.textContent = 'Password must be at least 8 characters.';
+    errEl.style.display = 'flex'; return;
+  }
+  if (pw !== pw2){
+    errMsg.textContent = 'Passwords do not match.';
+    errEl.style.display = 'flex'; return;
+  }
+
+  try {
+    const res = await fetch('/admin/users/reset_password', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({uid: resetUid, password: pw})
+    });
+    const d = await res.json();
+    if (d.success){
+      document.getElementById('rp-ok').style.display  = 'flex';
+      document.getElementById('rp-btn').style.display = 'none';
+      showToast(`Password for "${resetUid}" reset successfully.`);
+      setTimeout(() => closeModal('reset-modal'), 2000);
+    } else {
+      errMsg.textContent = d.error || 'Reset failed.';
+      errEl.style.display = 'flex';
+    }
+  } catch(e){
+    errMsg.textContent = 'Network error. Please try again.';
+    errEl.style.display = 'flex';
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Access Denied{% endblock %}
+{% block content %}
+<div style="text-align:center;padding:4rem 1rem;">
+  <div style="font-size:5rem;"><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+  <h1 style="color:var(--danger);margin:1rem 0;display:flex;align-items:center;justify-content:center;gap:.5rem;"><svg style="width:28px;height:28px;stroke:var(--danger)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>Access Denied</h1>
+  <p style="color:var(--muted);max-width:400px;margin:0 auto 1.5rem;">
+    You don't have permission to view this page. This area is restricted to
+    {% if session.get('role') %}{{ session.role }} accounts{% else %}authorised staff{% endif %}.
+  </p>
+  <a href="/" class="btn btn-primary">← Go Home</a>
+</div>
+{% endblock %}

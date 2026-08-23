@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% block title %}System Settings — SmartQueue{% endblock %}
+{% block extra_head %}
+<style>
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;}
+@media(max-width:700px){.settings-grid{grid-template-columns:1fr;}}
+.scard-icon{width:36px;height:36px;border-radius:9px;background:var(--primary-l);
+            display:flex;align-items:center;justify-content:center;margin-bottom:.8rem;}
+.scard-icon svg{width:18px;height:18px;stroke:var(--primary);}
+.test-result{padding:.45rem .8rem;border-radius:7px;font-size:.82rem;font-weight:600;
+             margin-top:.5rem;display:flex;align-items:center;gap:.4rem;}
+.test-result svg{width:14px;height:14px;flex-shrink:0;}
+.t-ok{background:#f0fff4;color:#276749;border:1px solid #c6f6d5;}
+.t-fail{background:#fff5f5;color:#9b2c2c;border:1px solid #fed7d7;}
+html.dark .t-ok{background:#0f2a0f;color:#68d391;border-color:#276749;}
+html.dark .t-fail{background:#2a0f0f;color:#fc8181;border-color:#9b2c2c;}
+</style>
+{% endblock %}
+{% block content %}
+<h1 class="page-title">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06
+             a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09
+             A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83
+             l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09
+             A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83
+             l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09
+             a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83
+             l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09
+             a1.65 1.65 0 0 0-1.51 1z"/>
+  </svg>
+  System Settings
+</h1>
+
+<form method="POST">
+<div class="settings-grid">
+
+  <!-- General -->
+  <div class="card">
+    <div class="scard-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+    </div>
+    <h2 style="color:var(--primary);margin-bottom:1rem;font-size:1rem;">General</h2>
+    <div class="form-group">
+      <label>University / Institution Name</label>
+      <input name="university_name" value="{{ settings.university_name }}">
+    </div>
+  </div>
+
+  <!-- Email -->
+  <div class="card">
+    <div class="scard-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+        <polyline points="22,6 12,13 2,6"/>
+      </svg>
+    </div>
+    <h2 style="color:var(--primary);margin-bottom:1rem;font-size:1rem;">Email Notifications (SMTP)</h2>
+
+    <div class="alert alert-success" style="margin-bottom:1rem;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="16" x2="12" y2="12"/>
+        <line x1="12" y1="8" x2="12.01" y2="8"/>
+      </svg>
+      <div>
+        <strong>Free via Gmail.</strong> Go to your Google Account → Security → 
+        App Passwords → create one for "Mail" → paste the 16-character password below.
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Enable Email Notifications</label>
+      <select name="email_enabled">
+        <option value="1" {% if settings.email_enabled=='1' %}selected{% endif %}>Yes — Send emails</option>
+        <option value="0" {% if settings.email_enabled!='1' %}selected{% endif %}>No — Disabled</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>SMTP Host</label>
+      <input name="smtp_host" value="{{ settings.smtp_host }}" placeholder="smtp.gmail.com">
+    </div>
+    <div class="form-group">
+      <label>SMTP Port</label>
+      <input name="smtp_port" value="{{ settings.smtp_port }}" placeholder="587">
+    </div>
+    <div class="form-group">
+      <label>Gmail Address</label>
+      <input name="smtp_user" value="{{ settings.smtp_user }}" placeholder="yourname@gmail.com">
+    </div>
+    <div class="form-group">
+      <label>Gmail App Password (16 characters)</label>
+      <input type="password" name="smtp_password" value="{{ settings.smtp_password }}"
+             placeholder="xxxx xxxx xxxx xxxx">
+    </div>
+    <div class="form-group">
+      <label>From Name</label>
+      <input name="smtp_from_name" value="{{ settings.smtp_from_name }}"
+             placeholder="Smart Queue System">
+    </div>
+  </div>
+
+</div><!-- /settings-grid -->
+
+<!-- Service Hours & Queue Limits -->
+<div class="card" style="margin-top:1.2rem;">
+  <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:1rem;">
+    <div class="scard-icon" style="margin-bottom:0;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2"/>
+        <line x1="16" y1="2" x2="16" y2="6"/>
+        <line x1="8" y1="2" x2="8" y2="6"/>
+        <line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+    </div>
+    <h2 style="color:var(--primary);font-size:1rem;margin:0;">Service Hours &amp; Queue Limits</h2>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Service</th><th>Opens</th><th>Closes</th><th>Max Queue Size</th></tr>
+      </thead>
+      <tbody>
+        {% for k, v in services.items() %}
+        {% set cfg = svc_cfg.get(k, {}) %}
+        <tr>
+          <td><strong>{{ v.name }}</strong></td>
+          <td><input type="time" name="open_{{ k }}"
+                     value="{{ cfg.get('open_time','08:00') }}" style="width:115px;"></td>
+          <td><input type="time" name="close_{{ k }}"
+                     value="{{ cfg.get('close_time','17:00') }}" style="width:115px;"></td>
+          <td><input type="number" name="max_{{ k }}"
+                     value="{{ cfg.get('max_queue',100) }}" min="1" max="999" style="width:90px;"></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div style="margin-top:1.2rem;">
+  <button class="btn btn-primary" type="submit">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+      <polyline points="17 21 17 13 7 13 7 21"/>
+      <polyline points="7 3 7 8 15 8"/>
+    </svg>
+    Save All Settings
+  </button>
+</div>
+</form>
+
+<!-- Test Email Panel -->
+<div class="card" style="margin-top:1.5rem;border:2px solid var(--primary);">
+  <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;">
+    <div class="scard-icon" style="margin-bottom:0;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"/>
+      </svg>
+    </div>
+    <div>
+      <h2 style="color:var(--primary);font-size:1rem;margin:0;">Test Notifications</h2>
+      <p style="font-size:.78rem;color:var(--muted);margin-top:.2rem;">
+        Sends a test message to your admin account to confirm each channel is working.
+        Save your settings first before testing.
+      </p>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.8rem;">
+
+    <!-- In-App -->
+    <div style="border:1px solid var(--border);border-radius:10px;padding:1rem;">
+      <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;">
+        <svg style="width:18px;height:18px;stroke:var(--primary)" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <strong style="font-size:.88rem;">In-App Alert</strong>
+      </div>
+      <p style="font-size:.75rem;color:var(--muted);margin-bottom:.7rem;">
+        Always free. Appears in your notification bell instantly.
+      </p>
+      <button class="btn btn-outline btn-sm" style="width:100%;justify-content:center;"
+              onclick="testChannel('inapp','res-inapp')">
+        Send Test
+      </button>
+      <div id="res-inapp"></div>
+    </div>
+
+    <!-- Email -->
+    <div style="border:1px solid var(--border);border-radius:10px;padding:1rem;">
+      <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;">
+        <svg style="width:18px;height:18px;stroke:var(--primary)" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+          <polyline points="22,6 12,13 2,6"/>
+        </svg>
+        <strong style="font-size:.88rem;">Email (Gmail)</strong>
+      </div>
+      <p style="font-size:.75rem;color:var(--muted);margin-bottom:.7rem;">
+        Completely free. Requires SMTP settings saved above.
+      </p>
+      <button class="btn btn-outline btn-sm" style="width:100%;justify-content:center;"
+              onclick="testChannel('email','res-email')">
+        Send Test Email
+      </button>
+      <div id="res-email"></div>
+    </div>
+
+    <!-- Both -->
+    <div style="border:1px solid var(--border);border-radius:10px;padding:1rem;">
+      <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;">
+        <svg style="width:18px;height:18px;stroke:var(--primary)" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        <strong style="font-size:.88rem;">All Channels</strong>
+      </div>
+      <p style="font-size:.75rem;color:var(--muted);margin-bottom:.7rem;">
+        Tests in-app and email at the same time.
+      </p>
+      <button class="btn btn-primary btn-sm" style="width:100%;justify-content:center;"
+              onclick="testChannel('all','res-all')">
+        Test All
+      </button>
+      <div id="res-all"></div>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+async function testChannel(channel, resultId) {
+  const el = document.getElementById(resultId);
+  el.innerHTML = '<span style="color:var(--muted);font-size:.8rem;">Sending...</span>';
+  try {
+    const res = await fetch('/admin/test_notification', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({channel})
+    });
+    const d = await res.json();
+    if (d.success) {
+      let html = '';
+      for (const [ch, status] of Object.entries(d.results)) {
+        const ok = status === 'sent';
+        html += `<div class="test-result ${ok ? 't-ok' : 't-fail'}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+               stroke-linecap="round" stroke-linejoin="round">
+            ${ok
+              ? '<polyline points="20 6 9 17 4 12"/>'
+              : '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'}
+          </svg>
+          <span>${ch}: ${status}</span>
+        </div>`;
+      }
+      el.innerHTML = html;
+    } else {
+      el.innerHTML = '<div class="test-result t-fail">Request failed. Try again.</div>';
+    }
+  } catch(e) {
+    el.innerHTML = `<div class="test-result t-fail">Error: ${e.message}</div>`;
+  }
+}
+</script>
+{% endblock %}

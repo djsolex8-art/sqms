@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Announcements — SmartQueue{% endblock %}
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2rem;flex-wrap:wrap;gap:.8rem;">
+  <h1 class="page-title" style="margin:0;"><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg> Announcements</h1>
+  <button class="btn btn-primary" onclick="document.getElementById('create-modal').style.display='flex'"><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New Announcement</button>
+</div>
+<div class="card">
+  {% if announcements %}
+  {% for a in announcements %}
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:.9rem 0;border-bottom:1px solid var(--border);gap:1rem;">
+    <div style="flex:1;">
+      <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.3rem;">
+        <strong>{{ a.title }}</strong>
+        <span class="badge {% if a.type=='info' %}bb{% elif a.type=='warning' %}bo{% else %}br{% endif %}">{{ a.type }}</span>
+        <span class="badge {% if a.is_active %}bg{% else %}br{% endif %}">{{ 'Active' if a.is_active else 'Hidden' }}</span>
+      </div>
+      <p style="font-size:.87rem;color:var(--muted);">{{ a.body }}</p>
+      <p style="font-size:.75rem;color:var(--muted);margin-top:.3rem;">Posted {{ a.created_at[:16] }}{% if a.expires_at %} · Expires {{ a.expires_at[:16] }}{% endif %}</p>
+    </div>
+    <div style="display:flex;gap:.4rem;flex-shrink:0;">
+      <button class="btn btn-sm btn-outline" onclick="toggleAnn({{ a.id }})">{{ 'Hide' if a.is_active else 'Show' }}</button>
+      <button class="btn btn-sm btn-danger" onclick="deleteAnn({{ a.id }})">Delete</button>
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p style="text-align:center;color:var(--muted);padding:2rem;">No announcements yet.</p>
+  {% endif %}
+</div>
+
+<div id="create-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999;align-items:center;justify-content:center;">
+  <div class="card" style="width:480px;max-width:95vw;">
+    <h2 style="margin-bottom:1rem;color:var(--accent);">New Announcement</h2>
+    <div class="form-group"><label>Title</label><input id="ann-title" placeholder="Announcement title"></div>
+    <div class="form-group"><label>Body</label><textarea id="ann-body" placeholder="Announcement details…"></textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.8rem;">
+      <div class="form-group"><label>Type</label>
+        <select id="ann-type"><option value="info">Info</option><option value="warning">Warning</option><option value="urgent">Urgent</option></select></div>
+      <div class="form-group"><label>Expires (optional)</label><input type="datetime-local" id="ann-expires"></div>
+    </div>
+    <div style="display:flex;gap:.8rem;">
+      <button class="btn btn-outline" onclick="document.getElementById('create-modal').style.display='none'">Cancel</button>
+      <button class="btn btn-primary" onclick="createAnn()">Post Announcement</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function createAnn(){
+  await fetch('/admin/announcements',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({title:document.getElementById('ann-title').value,body:document.getElementById('ann-body').value,
+    type:document.getElementById('ann-type').value,expires_at:document.getElementById('ann-expires').value})});
+  location.reload();
+}
+async function toggleAnn(id){await fetch('/admin/announcements/toggle/'+id,{method:'POST'});location.reload();}
+async function deleteAnn(id){if(!confirm('Delete this announcement?'))return;await fetch('/admin/announcements/delete/'+id,{method:'POST'});location.reload();}
+</script>
+{% endblock %}

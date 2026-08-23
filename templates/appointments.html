@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Appointments — SmartQueue{% endblock %}
+{% block extra_head %}
+<style>
+.appt-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; }
+@media(max-width:640px){ .appt-grid { grid-template-columns:1fr; } }
+.slot-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:.5rem; max-height:260px; overflow-y:auto; }
+            color:var(--text); cursor:pointer; font-size:.78rem; text-align:center; transition:all .2s; }
+.slot-btn:hover { border-color:var(--primary); }
+.slot-btn.selected { border-color:var(--primary); background:var(--primary-light); color:var(--primary); font-weight:700; }
+</style>
+{% endblock %}
+{% block content %}
+<h1 class="page-title"><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Appointments</h1>
+
+<div class="appt-grid">
+  <!-- Book new -->
+  <div class="card">
+    <h2 style="margin-bottom:1rem; color:var(--accent); font-size:1.1rem;">Book an Appointment</h2>
+    <div class="form-group">
+      <label>Service</label>
+      <select id="appt-svc">
+        <option value="">— Select service —</option>
+        {% for k, v in services.items() %}
+        <option value="{{ k }}">{{ v.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Available Slots (next 7 working days)</label>
+      <div class="slot-list" id="slot-list">
+        {% for s in slots %}
+        <button class="slot-btn" onclick="selectSlot('{{ s.date }}','{{ s.time }}',this)">
+          <div>{{ s.label }}</div>
+          <div style="font-weight:700;">{{ s.time }}</div>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Notes (optional)</label>
+      <textarea id="appt-notes" placeholder="Reason for appointment…"></textarea>
+    </div>
+    <div id="appt-error" class="alert alert-error" style="display:none;"></div>
+    <div id="appt-success" class="alert alert-success" style="display:none;"></div>
+    <button class="btn btn-primary" onclick="bookAppt()"><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Confirm Booking Booking</button>
+  </div>
+
+  <!-- My appointments -->
+  <div class="card">
+    <h2 style="margin-bottom:1rem; color:var(--accent); font-size:1.1rem;">My Appointments</h2>
+    {% if appointments %}
+    {% for a in appointments %}
+    <div style="border:1px solid var(--border); border-radius:8px; padding:1rem; margin-bottom:.8rem;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div>
+          <div style="font-weight:700; color:var(--accent);">{{ services[a.service].name }}</div>
+          <div style="font-size:.85rem; color:var(--muted); margin-top:.2rem;">
+            <svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> {{ a.appt_date }} at {{ a.appt_time }}
+          </div>
+          {% if a.notes %}<div style="font-size:.8rem; color:var(--muted); margin-top:.2rem;"><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> {{ a.notes }}</div>{% endif %}
+        </div>
+        <span class="badge badge-{{ 'green' if a.status=='booked' else 'red' }}">
+          {{ a.status.upper() }}
+        </span>
+      </div>
+      {% if a.status == 'booked' %}
+      <button class="btn btn-danger btn-sm" style="margin-top:.7rem;"
+              onclick="cancelAppt({{ a.id }}, this)">Cancel</button>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <div style="text-align:center; color:var(--muted); padding:2rem;">
+      <div style="font-size:2.5rem;"></div>
+      <p style="margin-top:.8rem; font-size:.9rem;">No appointments booked yet.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let selDate = null, selTime = null;
+function selectSlot(date, time, el) {
+  selDate = date; selTime = time;
+  document.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+}
+async function bookAppt() {
+  const svc = document.getElementById('appt-svc').value;
+  const notes = document.getElementById('appt-notes').value;
+  const errEl = document.getElementById('appt-error');
+  const okEl  = document.getElementById('appt-success');
+  errEl.style.display = 'none'; okEl.style.display = 'none';
+  if (!svc) { errEl.textContent='Please select a service.'; errEl.style.display='block'; return; }
+  if (!selDate) { errEl.textContent='Please select a time slot.'; errEl.style.display='block'; return; }
+  const res = await fetch('/appointments/book', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({service:svc, date:selDate, time:selTime, notes})
+  });
+  const d = await res.json();
+  if (d.success) {
+    okEl.textContent='Appointment booked! Refresh to see it in your list.';
+    okEl.style.display='block';
+  } else {
+    errEl.textContent = d.error;
+    errEl.style.display = 'block';
+  }
+}
+async function cancelAppt(id, btn) {
+  if (!confirm('Cancel this appointment?')) return;
+  await fetch('/appointments/cancel/' + id, {method:'POST'});
+  btn.closest('div[style]').querySelector('.badge').textContent = 'CANCELLED';
+  btn.remove();
+}
+</script>
+{% endblock %}

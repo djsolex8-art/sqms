@@ -1,0 +1,657 @@
+{% extends "base.html" %}
+{% block title %}Counters & Services — SmartQueue{% endblock %}
+{% block extra_head %}
+<style>
+.mgmt-grid {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:1.4rem;
+  margin-bottom:1.4rem;
+}
+@media(max-width:760px){ .mgmt-grid{ grid-template-columns:1fr; } }
+
+.counter-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
+  gap:.9rem;
+  margin-bottom:1.2rem;
+}
+.ccard {
+  background:var(--surface);border-radius:var(--radius);
+  padding:1.1rem;border:1px solid var(--border);
+  position:relative;transition:box-shadow .2s;
+}
+.ccard:hover{ box-shadow:0 4px 16px rgba(0,0,0,.1); }
+.ccard::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:4px;
+  background:var(--primary);border-radius:var(--radius) 0 0 var(--radius);
+}
+.cno-big{ font-size:2rem;font-weight:900;color:var(--primary);line-height:1; }
+
+.svc-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
+  gap:.9rem;
+  margin-bottom:1.2rem;
+}
+.svc-mgmt-card {
+  background:var(--surface);border-radius:var(--radius);
+  padding:1.1rem;border:1px solid var(--border);
+  position:relative;transition:box-shadow .2s;
+}
+.svc-mgmt-card:hover{ box-shadow:0 4px 16px rgba(0,0,0,.1); }
+.svc-mgmt-card::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:4px;
+  border-radius:var(--radius) 0 0 var(--radius);
+}
+.svc-mgmt-card.builtin::before  { background:var(--primary); }
+.svc-mgmt-card.custom::before   { background:#6b46c1; }
+
+.svc-icon-box {
+  width:36px;height:36px;border-radius:9px;
+  background:var(--primary-l);
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:.6rem;flex-shrink:0;
+}
+.svc-icon-box svg{ width:17px;height:17px;stroke:var(--primary); }
+.svc-mgmt-card.custom .svc-icon-box{ background:#f5f0ff; }
+.svc-mgmt-card.custom .svc-icon-box svg{ stroke:#6b46c1; }
+html.dark .svc-mgmt-card.custom .svc-icon-box{ background:#2d1f4a; }
+
+.add-card {
+  background:var(--surface);border-radius:var(--radius);
+  padding:1.1rem;border:2px dashed var(--border);
+  display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:.5rem;cursor:pointer;
+  transition:all .2s;min-height:160px;
+}
+.add-card:hover{ border-color:var(--primary);background:var(--primary-l); }
+.add-card svg{ width:28px;height:28px;stroke:var(--muted); }
+.add-card:hover svg{ stroke:var(--primary); }
+.add-card span{ font-size:.85rem;color:var(--muted);font-weight:600; }
+.add-card:hover span{ color:var(--primary); }
+
+.svc-select, .svc-input {
+  width:100%;padding:.48rem .75rem;
+  border:1px solid var(--border);border-radius:7px;
+  background:var(--surface);color:var(--text);
+  font-size:.85rem;margin-top:.35rem;
+}
+.svc-input:focus,.svc-select:focus{ outline:none;border-color:var(--primary); }
+
+/* Modal */
+.modal-overlay{
+  display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,.55);z-index:999;
+  align-items:center;justify-content:center;
+}
+.modal-box{
+  background:var(--surface);border-radius:var(--radius);
+  padding:1.6rem;width:440px;max-width:95vw;
+  border:1px solid var(--border);box-shadow:0 16px 48px rgba(0,0,0,.2);
+}
+
+/* Edit inline row */
+.edit-row{ display:none;margin-top:.6rem;gap:.4rem; }
+.edit-row input{ flex:1; }
+</style>
+{% endblock %}
+{% block content %}
+
+<h1 class="page-title">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2" y="3" width="20" height="14" rx="2"/>
+    <line x1="8" y1="21" x2="16" y2="21"/>
+    <line x1="12" y1="17" x2="12" y2="21"/>
+  </svg>
+  Counters &amp; Services
+</h1>
+
+<!-- ═══════════════════════════════════════════════════════
+     SECTION 1 — SERVICES
+════════════════════════════════════════════════════════ -->
+<div class="card" style="margin-bottom:1.4rem;">
+  <div style="display:flex;justify-content:space-between;align-items:center;
+              margin-bottom:1rem;flex-wrap:wrap;gap:.6rem;">
+    <h2 style="color:var(--primary);font-size:1rem;margin:0;
+               display:flex;align-items:center;gap:.4rem;">
+      <svg style="width:15px;height:15px" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+        <line x1="8" y1="18" x2="21" y2="18"/>
+        <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/>
+        <line x1="3" y1="18" x2="3.01" y2="18"/>
+      </svg>
+      Services
+    </h2>
+    <div style="display:flex;gap:.5rem;align-items:center;">
+      <span class="badge bb">{{ services|length }} total</span>
+      <span class="badge bp">{{ custom_services|length }} custom</span>
+    </div>
+  </div>
+
+  <div class="alert alert-success" style="margin-bottom:1rem;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round"
+         style="width:15px;height:15px;flex-shrink:0">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="12" y1="16" x2="12" y2="12"/>
+      <line x1="12" y1="8" x2="12.01" y2="8"/>
+    </svg>
+    <span>
+      <strong>Built-in services</strong> (blue) cannot be deleted or renamed.
+      <strong>Custom services</strong> (purple) can be edited or deleted as long as
+      no students are currently waiting or being served.
+    </span>
+  </div>
+
+  <div class="svc-grid">
+
+    <!-- Built-in services -->
+    {% for k, v in services.items() %}
+    {% if not v.get('custom') %}
+    <div class="svc-mgmt-card builtin">
+      <div class="svc-icon-box">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
+      </div>
+      <div style="font-size:.92rem;font-weight:700;color:var(--accent);margin-bottom:.2rem;">
+        {{ v.name }}
+      </div>
+      <div style="font-size:.74rem;color:var(--muted);margin-bottom:.6rem;">
+        Avg. {{ v.avg_minutes }} min &nbsp;|&nbsp;
+        <span class="badge bb" style="font-size:.65rem;">Built-in</span>
+      </div>
+      {% set svc_ctrs = counters|selectattr('service','equalto',k)|list %}
+      <div style="font-size:.78rem;color:var(--muted);">
+        {{ svc_ctrs|length }} counter{{ 's' if svc_ctrs|length != 1 }} assigned
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    <!-- Custom services -->
+    {% for k, v in services.items() %}
+    {% if v.get('custom') %}
+    <div class="svc-mgmt-card custom" id="scard-{{ k }}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div class="svc-icon-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="16"/>
+            <line x1="8" y1="12" x2="16" y2="12"/>
+          </svg>
+        </div>
+        <span class="badge bp" style="font-size:.65rem;">Custom</span>
+      </div>
+      <div style="font-size:.92rem;font-weight:700;color:var(--accent);margin-bottom:.2rem;"
+           id="sname-{{ k }}">{{ v.name }}</div>
+      <div style="font-size:.74rem;color:var(--muted);margin-bottom:.6rem;">
+        Avg. <span id="savg-{{ k }}">{{ v.avg_minutes }}</span> min
+      </div>
+      {% set svc_ctrs = counters|selectattr('service','equalto',k)|list %}
+      <div style="font-size:.78rem;color:var(--muted);margin-bottom:.7rem;">
+        {{ svc_ctrs|length }} counter{{ 's' if svc_ctrs|length != 1 }} assigned
+      </div>
+      <div style="display:flex;gap:.4rem;">
+        <button class="btn btn-outline btn-sm" style="flex:1;justify-content:center;"
+                onclick="showEditSvc('{{ k }}','{{ v.name }}',{{ v.avg_minutes }})">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
+          Edit
+        </button>
+        <button class="btn btn-danger btn-sm" style="flex:1;justify-content:center;"
+                onclick="deleteSvc('{{ k }}','{{ v.name }}')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14H6L5 6"/>
+            <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+          </svg>
+          Delete
+        </button>
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    <!-- Add new service card -->
+    <div class="add-card" onclick="showAddSvcModal()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="16"/>
+        <line x1="8" y1="12" x2="16" y2="12"/>
+      </svg>
+      <span>Add New Service</span>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     SECTION 2 — COUNTERS
+════════════════════════════════════════════════════════ -->
+<div class="card" style="margin-bottom:1.4rem;">
+  <div style="display:flex;justify-content:space-between;align-items:center;
+              margin-bottom:1rem;flex-wrap:wrap;gap:.6rem;">
+    <h2 style="color:var(--primary);font-size:1rem;margin:0;
+               display:flex;align-items:center;gap:.4rem;">
+      <svg style="width:15px;height:15px" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="3" width="20" height="14" rx="2"/>
+        <line x1="8" y1="21" x2="16" y2="21"/>
+        <line x1="12" y1="17" x2="12" y2="21"/>
+      </svg>
+      Counters
+    </h2>
+    <span class="badge bg">{{ counters|length }} configured</span>
+  </div>
+
+  <div class="counter-grid">
+    {% for ctr in counters %}
+    <div class="ccard" id="ccard-{{ ctr.counter_no }}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;
+                  margin-bottom:.6rem;">
+        <div>
+          <div class="cno-big">{{ ctr.counter_no }}</div>
+          <div style="font-size:.72rem;color:var(--muted);">Counter {{ ctr.counter_no }}</div>
+        </div>
+        <span class="badge {% if ctr.is_active %}bg{% else %}br{% endif %}">
+          {{ 'Open' if ctr.is_active else 'Closed' }}
+        </span>
+      </div>
+
+      <div class="form-group" style="margin-bottom:.7rem;">
+        <label style="font-size:.72rem;color:var(--muted);font-weight:600;">
+          Assigned Service
+        </label>
+        <select class="svc-select" id="csvc-{{ ctr.counter_no }}"
+                onchange="editCounter({{ ctr.counter_no }}, this.value)">
+          {% for k, v in services.items() %}
+          <option value="{{ k }}" {{ 'selected' if ctr.service == k }}>
+            {{ v.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="padding:.55rem .75rem;background:var(--surface2);border-radius:7px;
+                  border:1px solid var(--border);margin-bottom:.7rem;">
+        <div style="font-size:.68rem;color:var(--muted);margin-bottom:.15rem;">
+          Currently Serving
+        </div>
+        <div style="font-size:1rem;font-weight:800;
+                    font-family:'Courier New',monospace;
+                    color:{% if ctr.current_ticket %}var(--success){% else %}var(--muted){% endif %};">
+          {{ ctr.current_ticket or '— Idle —' }}
+        </div>
+      </div>
+
+      <button class="btn btn-danger btn-sm" style="width:100%;justify-content:center;"
+              onclick="deleteCounter({{ ctr.counter_no }},{{ 1 if ctr.current_ticket else 0 }})">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6l-1 14H6L5 6"/>
+          <path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+        </svg>
+        Delete Counter
+      </button>
+    </div>
+    {% endfor %}
+
+    <!-- Add counter card -->
+    <div class="add-card" onclick="showAddCtrModal()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="16"/>
+        <line x1="8" y1="12" x2="16" y2="12"/>
+      </svg>
+      <span>Add New Counter</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     SUMMARY TABLE
+════════════════════════════════════════════════════════ -->
+<div class="card">
+  <h2 style="color:var(--primary);margin-bottom:.9rem;font-size:1rem;
+             display:flex;align-items:center;gap:.4rem;">
+    <svg style="width:15px;height:15px" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+      <line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/>
+    </svg>
+    Counters per Service
+  </h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Service</th><th>Type</th>
+          <th>Total Counters</th><th>Open</th><th>Avg. Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for k, v in services.items() %}
+        {% set ctrs      = counters|selectattr('service','equalto',k)|list %}
+        {% set open_ctrs = ctrs|selectattr('is_active')|list %}
+        <tr>
+          <td><strong>{{ v.name }}</strong></td>
+          <td>
+            {% if v.get('custom') %}
+            <span class="badge bp">Custom</span>
+            {% else %}
+            <span class="badge bb">Built-in</span>
+            {% endif %}
+          </td>
+          <td><span class="badge {% if ctrs|length > 0 %}bb{% else %}br{% endif %}">
+            {{ ctrs|length }}</span></td>
+          <td><span class="badge {% if open_ctrs|length > 0 %}bg{% else %}br{% endif %}">
+            {{ open_ctrs|length }}</span></td>
+          <td>{{ v.avg_minutes }} min</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODALS
+════════════════════════════════════════════════════════ -->
+
+<!-- Add Service Modal -->
+<div class="modal-overlay" id="modal-add-svc">
+  <div class="modal-box">
+    <h2 style="color:var(--accent);margin-bottom:1.1rem;display:flex;
+               align-items:center;gap:.5rem;font-size:1.1rem;">
+      <svg style="width:18px;height:18px;stroke:var(--accent)" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="16"/>
+        <line x1="8" y1="12" x2="16" y2="12"/>
+      </svg>
+      Add New Service
+    </h2>
+    <div class="form-group">
+      <label>Service Name</label>
+      <input class="svc-input" id="new-svc-name"
+             placeholder="e.g. Health Centre, Sports Registration, Alumni Affairs">
+    </div>
+    <div class="form-group">
+      <label>Average Service Duration (minutes)</label>
+      <input class="svc-input" id="new-svc-avg" type="number"
+             min="1" max="120" value="10"
+             placeholder="How many minutes on average does one student take?">
+    </div>
+    <div id="add-svc-err" class="alert alert-error" style="display:none;margin-top:.6rem;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;flex-shrink:0">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span id="add-svc-err-msg"></span>
+    </div>
+    <div style="display:flex;gap:.8rem;margin-top:1rem;">
+      <button class="btn btn-outline" onclick="hideModal('modal-add-svc')">Cancel</button>
+      <button class="btn btn-primary" onclick="addService()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Add Service
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Service Modal -->
+<div class="modal-overlay" id="modal-edit-svc">
+  <div class="modal-box">
+    <h2 style="color:var(--accent);margin-bottom:1.1rem;display:flex;
+               align-items:center;gap:.5rem;font-size:1.1rem;">
+      <svg style="width:18px;height:18px;stroke:var(--accent)" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+      </svg>
+      Edit Service
+    </h2>
+    <input type="hidden" id="edit-svc-key">
+    <div class="form-group">
+      <label>Service Name</label>
+      <input class="svc-input" id="edit-svc-name" placeholder="Service name">
+    </div>
+    <div class="form-group">
+      <label>Average Service Duration (minutes)</label>
+      <input class="svc-input" id="edit-svc-avg" type="number" min="1" max="120">
+    </div>
+    <div id="edit-svc-err" class="alert alert-error" style="display:none;margin-top:.6rem;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;flex-shrink:0">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span id="edit-svc-err-msg"></span>
+    </div>
+    <div style="display:flex;gap:.8rem;margin-top:1rem;">
+      <button class="btn btn-outline" onclick="hideModal('modal-edit-svc')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEditSvc()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+          <polyline points="17 21 17 13 7 13 7 21"/>
+          <polyline points="7 3 7 8 15 8"/>
+        </svg>
+        Save Changes
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Counter Modal -->
+<div class="modal-overlay" id="modal-add-ctr">
+  <div class="modal-box">
+    <h2 style="color:var(--accent);margin-bottom:1.1rem;display:flex;
+               align-items:center;gap:.5rem;font-size:1.1rem;">
+      <svg style="width:18px;height:18px;stroke:var(--accent)" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="3" width="20" height="14" rx="2"/>
+        <line x1="8" y1="21" x2="16" y2="21"/>
+        <line x1="12" y1="17" x2="12" y2="21"/>
+      </svg>
+      Add New Counter
+    </h2>
+    <div class="form-group">
+      <label>Assign to Service</label>
+      <select id="new-ctr-svc" class="svc-select" style="margin-top:.4rem;">
+        {% for k, v in services.items() %}
+        <option value="{{ k }}">{{ v.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div id="add-ctr-err" class="alert alert-error" style="display:none;margin-top:.6rem;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;flex-shrink:0">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span id="add-ctr-err-msg"></span>
+    </div>
+    <div style="display:flex;gap:.8rem;margin-top:1rem;">
+      <button class="btn btn-outline" onclick="hideModal('modal-add-ctr')">Cancel</button>
+      <button class="btn btn-primary" onclick="addCounter()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Add Counter
+      </button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+/* ── Modal helpers ─────────────────────────────────────────── */
+function showModal(id){ document.getElementById(id).style.display='flex'; }
+function hideModal(id){ document.getElementById(id).style.display='none'; }
+function showErr(errId, msgId, msg){
+  document.getElementById(errId).style.display='flex';
+  document.getElementById(msgId).textContent=msg;
+}
+function hideErr(errId){ document.getElementById(errId).style.display='none'; }
+
+document.querySelectorAll('.modal-overlay').forEach(m=>{
+  m.addEventListener('click', e=>{ if(e.target===m) m.style.display='none'; });
+});
+
+/* ── Toast ─────────────────────────────────────────────────── */
+function showToast(msg, isError=false){
+  let t=document.getElementById('toast');
+  if(!t){
+    t=document.createElement('div'); t.id='toast';
+    t.style.cssText=`position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);
+      padding:.7rem 1.4rem;border-radius:8px;font-size:.88rem;font-weight:600;
+      z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.2);transition:opacity .3s;`;
+    document.body.appendChild(t);
+  }
+  t.textContent=msg;
+  t.style.background=isError?'#e53e3e':'#276749';
+  t.style.color='white'; t.style.opacity='1';
+  clearTimeout(t._t);
+  t._t=setTimeout(()=>t.style.opacity='0',3500);
+}
+
+/* ── SERVICE ACTIONS ───────────────────────────────────────── */
+function showAddSvcModal(){
+  document.getElementById('new-svc-name').value='';
+  document.getElementById('new-svc-avg').value='10';
+  hideErr('add-svc-err');
+  showModal('modal-add-svc');
+  document.getElementById('new-svc-name').focus();
+}
+
+async function addService(){
+  const name = document.getElementById('new-svc-name').value.trim();
+  const avg  = parseInt(document.getElementById('new-svc-avg').value) || 10;
+  hideErr('add-svc-err');
+  if(!name){ showErr('add-svc-err','add-svc-err-msg','Please enter a service name.'); return; }
+  const res = await fetch('/admin/services/add',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name, avg_minutes: avg})
+  });
+  const d = await res.json();
+  if(d.success){
+    hideModal('modal-add-svc');
+    showToast(`"${d.name}" added as a new service.`);
+    setTimeout(()=>location.reload(), 800);
+  } else {
+    showErr('add-svc-err','add-svc-err-msg', d.error);
+  }
+}
+
+function showEditSvc(key, name, avg){
+  document.getElementById('edit-svc-key').value=key;
+  document.getElementById('edit-svc-name').value=name;
+  document.getElementById('edit-svc-avg').value=avg;
+  hideErr('edit-svc-err');
+  showModal('modal-edit-svc');
+  document.getElementById('edit-svc-name').focus();
+}
+
+async function saveEditSvc(){
+  const key  = document.getElementById('edit-svc-key').value;
+  const name = document.getElementById('edit-svc-name').value.trim();
+  const avg  = parseInt(document.getElementById('edit-svc-avg').value) || 10;
+  hideErr('edit-svc-err');
+  if(!name){ showErr('edit-svc-err','edit-svc-err-msg','Please enter a service name.'); return; }
+  const res = await fetch(`/admin/services/edit/${key}`,{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name, avg_minutes: avg})
+  });
+  const d = await res.json();
+  if(d.success){
+    hideModal('modal-edit-svc');
+    showToast(`Service updated successfully.`);
+    setTimeout(()=>location.reload(), 800);
+  } else {
+    showErr('edit-svc-err','edit-svc-err-msg', d.error);
+  }
+}
+
+async function deleteSvc(key, name){
+  if(!confirm(`Delete "${name}"? This cannot be undone. All counters assigned to this service will be closed.`)) return;
+  const res = await fetch(`/admin/services/delete/${key}`,{method:'POST'});
+  const d   = await res.json();
+  if(d.success){
+    showToast(`"${name}" deleted.`);
+    setTimeout(()=>location.reload(), 800);
+  } else {
+    showToast(d.error, true);
+  }
+}
+
+/* ── COUNTER ACTIONS ───────────────────────────────────────── */
+function showAddCtrModal(){
+  hideErr('add-ctr-err');
+  showModal('modal-add-ctr');
+}
+
+async function addCounter(){
+  const svc = document.getElementById('new-ctr-svc').value;
+  hideErr('add-ctr-err');
+  const res = await fetch('/admin/counters/add',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({service: svc})
+  });
+  const d = await res.json();
+  if(d.success){
+    hideModal('modal-add-ctr');
+    showToast(`Counter ${d.counter_no} added for ${d.service_name}.`);
+    setTimeout(()=>location.reload(), 800);
+  } else {
+    showErr('add-ctr-err','add-ctr-err-msg', d.error);
+  }
+}
+
+async function deleteCounter(cn, hasTicket){
+  if(hasTicket){ showToast(`Counter ${cn} is currently serving. Complete or no-show the ticket first.`, true); return; }
+  if(!confirm(`Delete Counter ${cn}? This cannot be undone.`)) return;
+  const res = await fetch(`/admin/counters/delete/${cn}`,{method:'POST'});
+  const d   = await res.json();
+  if(d.success){
+    showToast(`Counter ${cn} deleted.`);
+    setTimeout(()=>location.reload(), 800);
+  } else {
+    showToast(d.error, true);
+  }
+}
+
+async function editCounter(cn, svc){
+  const res = await fetch(`/admin/counters/edit/${cn}`,{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({service: svc})
+  });
+  const d = await res.json();
+  if(d.success) showToast(`Counter ${cn} reassigned.`);
+  else showToast(d.error, true);
+}
+</script>
+{% endblock %}

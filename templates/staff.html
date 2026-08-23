@@ -1,0 +1,791 @@
+{% extends "base.html" %}
+{% block title %}Staff Dashboard — SmartQueue{% endblock %}
+{% block extra_head %}
+<style>
+/* ── Counter grid ────────────────────────────────────────────── */
+.counters-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+  gap:1rem;
+  margin-bottom:1.5rem;
+}
+.ccard {
+  background:var(--surface);
+  border-radius:var(--radius);
+  padding:1.2rem;
+  border:1px solid var(--border);
+  transition:box-shadow .2s, border-color .2s;
+  position:relative;
+  overflow:hidden;
+}
+.ccard:hover { box-shadow:0 6px 20px rgba(0,0,0,.12); }
+.ccard.has-urgent { border-color:#e53e3e; }
+.ccard.has-high   { border-color:#dd6b20; }
+.ccard.is-serving { border-color:var(--success); }
+.ccard.inactive   { opacity:.5; }
+
+/* Accent strip on left edge */
+.ccard::before {
+  content:'';
+  position:absolute;
+  left:0; top:0; bottom:0;
+  width:4px;
+  background:var(--border);
+  border-radius:var(--radius) 0 0 var(--radius);
+}
+.ccard.has-urgent::before { background:#e53e3e; }
+.ccard.has-high::before   { background:#dd6b20; }
+.ccard.is-serving::before { background:var(--success); }
+.ccard.idle::before       { background:var(--primary); }
+
+/* Counter header */
+.ccard-header {
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  margin-bottom:.7rem;
+}
+.cno {
+  font-size:1.1rem;
+  font-weight:800;
+  color:var(--primary);
+}
+.csvc {
+  font-size:.72rem;
+  color:var(--muted);
+  margin-top:.1rem;
+}
+
+/* Currently serving display */
+.serving-display {
+  font-size:2rem;
+  font-weight:900;
+  color:var(--success);
+  font-family:'Courier New',monospace;
+  letter-spacing:.1rem;
+  min-height:2.4rem;
+  text-align:center;
+  margin:.4rem 0;
+}
+.serving-display.idle {
+  color:var(--border);
+  font-size:1.2rem;
+  font-weight:400;
+  font-family:inherit;
+  letter-spacing:0;
+}
+
+/* Live stats strip */
+.live-stats {
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:.4rem;
+  margin:.6rem 0;
+  padding:.6rem;
+  background:var(--surface2);
+  border-radius:8px;
+  border:1px solid var(--border);
+}
+.stat-box {
+  text-align:center;
+}
+.stat-box .sv {
+  font-size:1.3rem;
+  font-weight:800;
+  line-height:1;
+}
+.stat-box .sl {
+  font-size:.62rem;
+  color:var(--muted);
+  margin-top:.15rem;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+}
+.sv.urgent { color:#e53e3e; }
+.sv.high   { color:#dd6b20; }
+.sv.normal { color:var(--primary); }
+.sv.total  { color:var(--accent); }
+
+/* Priority bar */
+.prio-bar {
+  display:flex;
+  gap:3px;
+  margin:.4rem 0;
+  height:6px;
+  border-radius:4px;
+  overflow:hidden;
+  background:var(--border);
+}
+.pbar-urgent { background:#e53e3e; }
+.pbar-high   { background:#dd6b20; }
+.pbar-normal { background:var(--primary); }
+
+/* Next ticket preview */
+.next-preview {
+  display:flex;
+  align-items:center;
+  gap:.5rem;
+  padding:.45rem .7rem;
+  background:var(--primary-l);
+  border-radius:7px;
+  margin:.5rem 0;
+  border:1px solid var(--border);
+  min-height:2.1rem;
+}
+.next-preview .np-label {
+  font-size:.68rem;
+  color:var(--muted);
+  white-space:nowrap;
+}
+.next-preview .np-ticket {
+  font-size:.9rem;
+  font-weight:800;
+  color:var(--primary);
+  font-family:'Courier New',monospace;
+}
+.next-preview .np-prio {
+  margin-left:auto;
+  font-size:.65rem;
+  font-weight:700;
+  padding:.1rem .4rem;
+  border-radius:999px;
+}
+.np-prio.p3 { background:#fed7d7; color:#9b2c2c; }
+.np-prio.p2 { background:#feebc8; color:#9c4221; }
+.np-prio.p1 { background:#bee3f8; color:#2b6cb0; }
+html.dark .np-prio.p3 { background:#3a1010; color:#fc8181; }
+html.dark .np-prio.p2 { background:#3a2010; color:#fbd38d; }
+html.dark .np-prio.p1 { background:#1a2a3a; color:#63b3ed; }
+
+/* Wait time badge */
+.wait-badge {
+  display:inline-flex;
+  align-items:center;
+  gap:.3rem;
+  font-size:.72rem;
+  color:var(--muted);
+  margin-bottom:.5rem;
+}
+.wait-badge svg { width:12px;height:12px;flex-shrink:0; }
+
+/* Action buttons */
+.arow { display:flex;gap:.4rem;margin-top:.5rem; }
+.pause-badge {
+  display:inline-flex;align-items:center;gap:.3rem;
+  background:#fed7d7;color:#9b2c2c;font-size:.68rem;
+  padding:.15rem .5rem;border-radius:999px;font-weight:700;
+  margin-bottom:.4rem;
+}
+.pause-badge svg { width:11px;height:11px; }
+
+/* Live indicator dot */
+.live-dot {
+  display:inline-block;
+  width:7px;height:7px;
+  background:var(--success);
+  border-radius:50%;
+  animation:pulse 2s infinite;
+  margin-right:.3rem;
+}
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
+
+/* Empty queue hint */
+.empty-queue {
+  text-align:center;
+  color:var(--muted);
+  font-size:.78rem;
+  padding:.3rem 0;
+}
+</style>
+{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2rem;flex-wrap:wrap;gap:.8rem;">
+  <h1 class="page-title" style="margin:0;">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round">
+      <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+      <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
+      <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+    </svg>
+    Queue Management
+  </h1>
+  <div style="display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;">
+    <span style="font-size:.78rem;color:var(--muted);">
+      <span class="live-dot"></span>Live — refreshes every 10s
+    </span>
+    <input type="date" id="exp-date"
+           style="padding:.38rem .7rem;border:1px solid var(--border);border-radius:7px;
+                  background:var(--surface);color:var(--text);font-size:.82rem;">
+    <button class="btn btn-purple btn-sm" onclick="exportCSV()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      CSV
+    </button>
+    <button class="btn btn-orange btn-sm" onclick="exportPDF()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 6 2 18 2 18 9"/>
+        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+        <rect x="6" y="14" width="12" height="8"/>
+      </svg>
+      Print
+    </button>
+    {% if role=='admin' %}
+    <button class="btn btn-danger btn-sm" onclick="bulkReset()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6"/>
+        <path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+      </svg>
+      Reset All
+    </button>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ═══ COUNTER CARDS (live) ══════════════════════════════════ -->
+<h2 style="color:var(--primary);margin-bottom:.8rem;font-size:1rem;
+           display:flex;align-items:center;gap:.4rem;">
+  <svg style="width:15px;height:15px" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2" y="3" width="20" height="14" rx="2"/>
+    <line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+  </svg>
+  Service Counters
+</h2>
+
+<div class="counters-grid" id="counters-grid">
+  {% for c in counters %}
+  <div class="ccard {% if not c.is_active %}inactive{% endif %}"
+       id="ccard-{{ c.counter_no }}" data-service="{{ c.service }}">
+
+    <div class="ccard-header">
+      <div>
+        <div class="cno">Counter {{ c.counter_no }}</div>
+        <div class="csvc">{{ services[c.service]['name'] }}</div>
+      </div>
+      <span class="badge {% if c.is_active %}bg{% else %}br{% endif %}"
+            id="cbadge-{{ c.counter_no }}">
+        {{ 'OPEN' if c.is_active else 'CLOSED' }}
+      </span>
+    </div>
+
+    {% set cfg = svc_cfg.get(c.service, {}) %}
+    {% if cfg.get('is_paused') %}
+    <div class="pause-badge" id="pause-badge-{{ c.counter_no }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+      </svg>
+      SERVICE PAUSED
+    </div>
+    {% endif %}
+
+    <!-- Currently serving -->
+    <div class="serving-display {% if not c.current_ticket %}idle{% endif %}"
+         id="serving-{{ c.counter_no }}">
+      {{ c.current_ticket or 'Idle' }}
+    </div>
+
+    <!-- Live stats strip — populated by JS -->
+    <div class="live-stats" id="stats-{{ c.counter_no }}">
+      <div class="stat-box">
+        <div class="sv total" id="stat-total-{{ c.counter_no }}">—</div>
+        <div class="sl">Waiting</div>
+      </div>
+      <div class="stat-box">
+        <div class="sv urgent" id="stat-urgent-{{ c.counter_no }}">—</div>
+        <div class="sl">Urgent</div>
+      </div>
+      <div class="stat-box">
+        <div class="sv high" id="stat-high-{{ c.counter_no }}">—</div>
+        <div class="sl">High</div>
+      </div>
+    </div>
+
+    <!-- Priority bar -->
+    <div class="prio-bar" id="pbar-{{ c.counter_no }}" title="Priority breakdown">
+      <div class="pbar-urgent" id="pb-urgent-{{ c.counter_no }}" style="width:0%"></div>
+      <div class="pbar-high"   id="pb-high-{{ c.counter_no }}"   style="width:0%"></div>
+      <div class="pbar-normal" id="pb-normal-{{ c.counter_no }}" style="width:0%"></div>
+    </div>
+
+    <!-- Wait time -->
+    <div class="wait-badge" id="wait-{{ c.counter_no }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+      <span>Loading...</span>
+    </div>
+
+    <!-- Next ticket preview -->
+    <div class="next-preview" id="next-{{ c.counter_no }}">
+      <span class="np-label">Next up:</span>
+      <span class="np-ticket" id="next-ticket-{{ c.counter_no }}">—</span>
+      <span class="np-prio" id="next-prio-{{ c.counter_no }}"></span>
+    </div>
+
+    <!-- Action buttons -->
+    {% if c.is_active %}
+      <button class="btn btn-primary btn-sm"
+              style="width:100%;justify-content:center;margin-top:.5rem;"
+              onclick="callNext({{ c.counter_no }},'{{ c.service }}')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+        </svg>
+        Call Next
+      </button>
+      <div id="action-row-{{ c.counter_no }}" class="arow"
+           style="{{ '' if c.current_ticket else 'display:none' }}">
+        <button class="btn btn-success btn-sm" style="flex:1;justify-content:center;"
+                onclick="complete('{{ c.current_ticket or '' }}',{{ c.counter_no }})"
+                id="btn-done-{{ c.counter_no }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+               stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          Done
+        </button>
+        <button class="btn btn-danger btn-sm" style="flex:1;justify-content:center;"
+                onclick="noShow('{{ c.current_ticket or '' }}',{{ c.counter_no }})"
+                id="btn-noshow-{{ c.counter_no }}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+               stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+          No Show
+        </button>
+      </div>
+    {% endif %}
+
+    <div class="arow" style="margin-top:.4rem;">
+      <button class="btn btn-sm btn-grey" style="flex:1;justify-content:center;"
+              onclick="toggleCounter({{ c.counter_no }})"
+              id="btn-toggle-{{ c.counter_no }}">
+        {% if c.is_active %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+        </svg>
+        Close
+        {% else %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        Open
+        {% endif %}
+      </button>
+      <button class="btn btn-sm btn-grey" style="flex:1;justify-content:center;"
+              onclick="togglePause('{{ c.service }}',{{ cfg.get('is_paused',0) }})">
+        {% if cfg.get('is_paused') %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        Resume
+        {% else %}
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+        </svg>
+        Pause
+        {% endif %}
+      </button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ═══ TODAY'S APPOINTMENTS ══════════════════════════════════ -->
+{% if todays_appts %}
+<div class="card" style="margin-bottom:1.2rem;">
+  <h2 style="color:var(--primary);margin-bottom:.8rem;font-size:1rem;
+             display:flex;align-items:center;gap:.4rem;">
+    <svg style="width:15px;height:15px" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2"/>
+      <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+      <line x1="3" y1="10" x2="21" y2="10"/>
+    </svg>
+    Today's Appointments ({{ todays_appts|length }})
+  </h2>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Time</th><th>Student</th><th>Service</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        {% for a in todays_appts %}
+        <tr>
+          <td><strong>{{ a.appt_time }}</strong></td>
+          <td>{{ a.student_name }}
+            <span style="color:var(--muted);font-size:.74rem;">({{ a.student_id }})</span>
+          </td>
+          <td>{{ services[a.service]['name'] }}</td>
+          <td>{{ a.notes or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- ═══ SERVICE RATINGS ════════════════════════════════════════ -->
+{% if fb_avg %}
+<div class="card" style="margin-bottom:1.2rem;">
+  <h2 style="color:var(--primary);margin-bottom:.8rem;font-size:1rem;
+             display:flex;align-items:center;gap:.4rem;">
+    <svg style="width:15px;height:15px;color:#d69e2e" viewBox="0 0 24 24"
+         fill="currentColor" stroke="#d69e2e" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+    </svg>
+    Service Ratings
+  </h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:.7rem;">
+    {% for k, fb in fb_avg.items() %}
+    <div style="background:var(--surface2);border-radius:8px;padding:.9rem;
+                border:1px solid var(--border);">
+      <div style="font-size:.75rem;color:var(--muted);">{{ services[k]['name'] }}</div>
+      <div style="display:flex;align-items:center;gap:.2rem;margin-top:.4rem;">
+        {% for i in range(fb.avg_r|int) %}
+        <svg style="width:13px;height:13px;color:#d69e2e" viewBox="0 0 24 24"
+             fill="currentColor" stroke="#d69e2e" stroke-width="1.5">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+        </svg>
+        {% endfor %}
+        <strong style="color:var(--text);font-size:.85rem;margin-left:.2rem;">
+          {{ fb.avg_r }}
+        </strong>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:.2rem;">
+        {{ fb.cnt }} review{{ 's' if fb.cnt != 1 }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ═══ WAITING QUEUE TABLE ════════════════════════════════════ -->
+<div class="card" style="margin-bottom:1.2rem;">
+  <h2 style="color:var(--primary);margin-bottom:.8rem;font-size:1rem;
+             display:flex;align-items:center;gap:.4rem;">
+    <svg style="width:15px;height:15px" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+    </svg>
+    Waiting Queue
+    <span class="badge bb" id="waiting-total-badge" style="margin-left:.3rem;">
+      {{ waiting|length }}
+    </span>
+  </h2>
+  <div class="table-wrap">
+    {% if waiting %}
+    <table id="waiting-table">
+      <thead>
+        <tr>
+          <th>Ticket</th><th>Name</th><th>ID</th>
+          <th>Service</th><th>Priority</th><th>Joined</th><th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in waiting %}
+        <tr>
+          <td><strong style="font-family:'Courier New',monospace;">{{ t.ticket_no }}</strong></td>
+          <td>{{ t.student_name }}</td>
+          <td>{{ t.student_id }}</td>
+          <td>{{ services[t.service]['name'] }}</td>
+          <td>
+            <span class="badge
+              {% if t.priority==3 %}br
+              {% elif t.priority==2 %}bo
+              {% else %}bb{% endif %}">
+              {{ priority_labels[t.priority] }}
+            </span>
+          </td>
+          <td style="font-size:.8rem;white-space:nowrap;">{{ t.created_at[11:16] }}</td>
+          <td style="font-size:.78rem;color:var(--muted);">{{ t.notes or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="text-align:center;color:var(--muted);padding:1.5rem;">
+      No tickets currently waiting.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ═══ CURRENTLY SERVING ══════════════════════════════════════ -->
+<div class="card">
+  <h2 style="color:var(--primary);margin-bottom:.8rem;font-size:1rem;
+             display:flex;align-items:center;gap:.4rem;">
+    <svg style="width:15px;height:15px" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+    </svg>
+    Currently Serving
+    <span class="badge bg" id="serving-total-badge" style="margin-left:.3rem;">
+      {{ serving|length }}
+    </span>
+  </h2>
+  <div class="table-wrap">
+    {% if serving %}
+    <table>
+      <thead>
+        <tr><th>Ticket</th><th>Name</th><th>Service</th><th>Counter</th><th>Called</th></tr>
+      </thead>
+      <tbody>
+        {% for t in serving %}
+        <tr>
+          <td><strong style="font-family:'Courier New',monospace;">{{ t.ticket_no }}</strong></td>
+          <td>{{ t.student_name }}</td>
+          <td>{{ services[t.service]['name'] }}</td>
+          <td>Counter {{ t.counter }}</td>
+          <td style="font-size:.8rem;">{{ t.called_at[11:16] if t.called_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="text-align:center;color:var(--muted);padding:1.5rem;">
+      No students currently being served.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('exp-date').value = new Date().toISOString().split('T')[0];
+function getDate(){ return document.getElementById('exp-date').value || new Date().toISOString().split('T')[0]; }
+function exportCSV(){ window.location = '/admin/export/csv?date=' + getDate(); }
+function exportPDF(){ window.open('/admin/export/pdf?date=' + getDate(), '_blank'); }
+
+/* ── Counter actions ─────────────────────────────────────────── */
+async function callNext(cn, svc) {
+  const r = await fetch('/staff/call_next', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({counter_no: cn, service: svc})
+  });
+  const d = await r.json();
+  if (d.success) {
+    // Update the done/no-show buttons with new ticket
+    document.getElementById('btn-done-{{ loop_placeholder }}')?.setAttribute('onclick',
+      `complete('${d.ticket_no}',${cn})`);
+    showToast(`Calling ${d.ticket_no} — ${d.student_name} → Counter ${cn}`);
+    refreshStats();
+  } else {
+    showToast(d.message || 'No tickets waiting for this service.', true);
+  }
+}
+async function complete(tn, cn) {
+  if (!tn) { showToast('No ticket currently serving at this counter.', true); return; }
+  await fetch('/staff/complete', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ticket_no: tn, counter_no: cn})
+  });
+  showToast('Service complete. Counter cleared.');
+  refreshStats();
+}
+async function noShow(tn, cn) {
+  if (!tn) { showToast('No ticket currently serving at this counter.', true); return; }
+  await fetch('/staff/no_show', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ticket_no: tn, counter_no: cn})
+  });
+  showToast('No-show recorded. Counter cleared.');
+  refreshStats();
+}
+async function toggleCounter(cn) {
+  await fetch('/staff/toggle_counter', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({counter_no: cn})
+  });
+  location.reload();
+}
+async function togglePause(svc, cur) {
+  const reason = cur ? '' : (prompt('Reason for pausing (optional):', 'Temporarily unavailable') || '');
+  await fetch('/staff/toggle_pause', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({service: svc, reason})
+  });
+  location.reload();
+}
+async function bulkReset() {
+  if (!confirm('Reset ALL waiting queues? This cannot be undone.')) return;
+  await fetch('/admin/bulk_reset', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({service: 'all'})
+  });
+  showToast('All waiting queues cleared.');
+  refreshStats();
+}
+
+/* ── Toast notification ──────────────────────────────────────── */
+function showToast(msg, isError=false) {
+  let t = document.getElementById('staff-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'staff-toast';
+    t.style.cssText = `position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);
+      padding:.7rem 1.4rem;border-radius:8px;font-size:.88rem;font-weight:600;
+      z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.2);transition:opacity .3s;`;
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.background  = isError ? '#e53e3e' : '#276749';
+  t.style.color       = 'white';
+  t.style.opacity     = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3000);
+}
+
+/* ── Live stats refresh ──────────────────────────────────────── */
+// Map counter_no → service
+const counterService = {
+  {% for c in counters %}
+  {{ c.counter_no }}: '{{ c.service }}',
+  {% endfor %}
+};
+
+const PRIO_LABELS = {3: 'Urgent', 2: 'High', 1: 'Normal'};
+const PRIO_CLASS  = {3: 'p3', 2: 'p2', 1: 'p1'};
+
+async function refreshStats() {
+  try {
+    const r = await fetch('/api/live_queue_stats');
+    const d = await r.json();
+    const stats    = d.stats;
+    const counters = d.counters;
+
+    // Update each counter card
+    for (const [cn, info] of Object.entries(counters)) {
+      const svc = info.service;
+      const s   = stats[svc];
+      if (!s) continue;
+
+      const total   = s.total_waiting;
+      const urgent  = s.urgent;
+      const high    = s.high;
+      const normal  = s.normal;
+      const est     = s.est_wait_min;
+      const next    = s.next_ticket;
+
+      // Stat boxes
+      setTxt(`stat-total-${cn}`,  total);
+      setTxt(`stat-urgent-${cn}`, urgent);
+      setTxt(`stat-high-${cn}`,   high);
+
+      // Priority bar
+      if (total > 0) {
+        setStyle(`pb-urgent-${cn}`, 'width', `${(urgent/total*100).toFixed(0)}%`);
+        setStyle(`pb-high-${cn}`,   'width', `${(high/total*100).toFixed(0)}%`);
+        setStyle(`pb-normal-${cn}`, 'width', `${(normal/total*100).toFixed(0)}%`);
+      } else {
+        ['urgent','high','normal'].forEach(p => setStyle(`pb-${p}-${cn}`, 'width', '0%'));
+      }
+
+      // Wait time
+      const waitEl = document.getElementById(`wait-${cn}`);
+      if (waitEl) {
+        waitEl.querySelector('span').textContent =
+          total > 0 ? `Est. wait: ~${est} min for next person` : 'No one waiting';
+      }
+
+      // Next ticket preview
+      const ntEl   = document.getElementById(`next-ticket-${cn}`);
+      const npEl   = document.getElementById(`next-prio-${cn}`);
+      if (ntEl && npEl) {
+        if (next) {
+          ntEl.textContent    = next.ticket_no;
+          npEl.textContent    = PRIO_LABELS[next.priority];
+          npEl.className      = `np-prio ${PRIO_CLASS[next.priority]}`;
+        } else {
+          ntEl.textContent = '— Empty';
+          npEl.textContent = '';
+          npEl.className   = 'np-prio';
+        }
+      }
+
+      // Card accent class
+      const card = document.getElementById(`ccard-${cn}`);
+      if (card && info.is_active) {
+        card.classList.remove('has-urgent','has-high','is-serving','idle');
+        if (info.current_ticket)  card.classList.add('is-serving');
+        else if (urgent > 0)      card.classList.add('has-urgent');
+        else if (high > 0)        card.classList.add('has-high');
+        else                      card.classList.add('idle');
+      }
+
+      // Serving display
+      const servEl = document.getElementById(`serving-${cn}`);
+      if (servEl) {
+        if (info.current_ticket) {
+          servEl.textContent = info.current_ticket;
+          servEl.classList.remove('idle');
+        } else {
+          servEl.textContent = 'Idle';
+          servEl.classList.add('idle');
+        }
+      }
+
+      // Done/NoShow button visibility & ticket
+      const actionRow = document.getElementById(`action-row-${cn}`);
+      const btnDone   = document.getElementById(`btn-done-${cn}`);
+      const btnNoShow = document.getElementById(`btn-noshow-${cn}`);
+      if (actionRow) {
+        if (info.current_ticket) {
+          actionRow.style.display = 'flex';
+          if (btnDone)   btnDone.setAttribute('onclick',   `complete('${info.current_ticket}',${cn})`);
+          if (btnNoShow) btnNoShow.setAttribute('onclick', `noShow('${info.current_ticket}',${cn})`);
+        } else {
+          actionRow.style.display = 'none';
+        }
+      }
+    }
+
+    // Update waiting/serving badges in section headings
+    let totalWaiting = 0, totalServing = 0;
+    for (const s of Object.values(stats)) {
+      totalWaiting += s.total_waiting;
+      totalServing += s.serving_count;
+    }
+    setTxt('waiting-total-badge', totalWaiting);
+    setTxt('serving-total-badge', totalServing);
+
+  } catch(e) {
+    console.warn('Live stats refresh failed:', e);
+  }
+}
+
+function setTxt(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+function setStyle(id, prop, val) {
+  const el = document.getElementById(id);
+  if (el) el.style[prop] = val;
+}
+
+// Kick off immediately, then every 10 seconds
+refreshStats();
+const liveInterval = setInterval(refreshStats, 10000);
+
+// Full page reload every 5 minutes to pick up new appointments etc.
+setTimeout(() => location.reload(), 300000);
+</script>
+{% endblock %}

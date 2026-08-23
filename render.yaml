@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: sqms
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: SECRET_KEY
+        generateValue: true
+    disk:
+      name: sqms-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

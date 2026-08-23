@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Audit Log — SmartQueue{% endblock %}
+{% block content %}
+<h1 class="page-title"><svg style="width:1em;height:1em;vertical-align:-.15em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Audit Log</h1>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th><th>IP</th></tr></thead>
+      <tbody>
+      {% for l in logs %}
+      <tr>
+        <td style="font-size:.78rem;white-space:nowrap;">{{ l.created_at[:16] }}</td>
+        <td><strong>{{ l.actor_id }}</strong></td>
+        <td><span class="badge bb">{{ l.action }}</span></td>
+        <td style="font-size:.82rem;">{{ l.target or '—' }}</td>
+        <td style="font-size:.78rem;color:var(--muted);">{{ l.detail or '—' }}</td>
+        <td style="font-size:.75rem;color:var(--muted);">{{ l.ip or '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
