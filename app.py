@@ -18,7 +18,7 @@ FEATURES:
 
 from flask import (Flask, render_template, request, jsonify,
                    redirect, url_for, session, send_file, flash)
-import os, csv, io, hashlib, secrets, smtplib
+import os, csv, re, io, hashlib, secrets, smtplib
 
 # Database backend — PostgreSQL (Supabase) when DATABASE_URL is set, else SQLite
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -223,6 +223,17 @@ def _to_pg(sql):
         return sql
     # Replace ? placeholders with %s
     sql = sql.replace("?", "%s")
+    # Convert SQLite date functions to PostgreSQL equivalents
+    # julianday difference in minutes → EXTRACT(EPOCH...)/60
+    sql = re.sub(
+        r'\(julianday\(([^)]+)\)-julianday\(([^)]+)\)\)\*1440',
+        r'EXTRACT(EPOCH FROM (\1::timestamp - \2::timestamp))/60',
+        sql
+    )
+    # DATE() works in PostgreSQL too, but created_at is TEXT so cast it
+    sql = re.sub(r'DATE\(created_at\)', "DATE(created_at::timestamp)", sql)
+    sql = re.sub(r'DATE\(called_at\)', "DATE(called_at::timestamp)", sql)
+    sql = re.sub(r'DATE\(completed_at\)', "DATE(completed_at::timestamp)", sql)
     return sql
 
 def _pg_sql(sql):
