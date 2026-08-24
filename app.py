@@ -86,29 +86,18 @@ PRIORITY_LABELS = {1: "Normal", 2: "High", 3: "Urgent"}
 # ─────────────────────────────────────────────────────────
 # DATABASE
 # ─────────────────────────────────────────────────────────
+
 class _PgRow(dict):
-    """Make psycopg2 rows behave like sqlite3.Row (access by column name)."""
+    """Make psycopg2 rows behave like sqlite3.Row."""
     def __getitem__(self, key):
         if isinstance(key, int):
             return list(self.values())[key]
         return super().__getitem__(key)
 
-def get_db():
-    if USE_PG:
-        conn = psycopg2.connect(
-            DATABASE_URL,
-            cursor_factory=psycopg2.extras.RealDictCursor
-        )
-        conn.autocommit = False
-        return _PgConn(conn)
-    else:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
 
 class _PgConn:
-    """Thin wrapper making psycopg2 work like sqlite3 context manager."""
+    """Thin PostgreSQL wrapper that behaves similarly to sqlite3 connection."""
+
     def __init__(self, conn):
         self._conn = conn
 
@@ -124,17 +113,24 @@ class _PgConn:
         cur.executemany(sql, seq)
 
     def executescript(self, sql):
-        """Run multiple statements separated by semicolons."""
+        """
+        Execute multiple SQL statements.
+
+        PostgreSQL does not use SQLite's executescript(), so each
+        statement is executed separately.
+        """
+        statements = []
+
         for stmt in sql.split(";"):
             stmt = stmt.strip()
             if stmt:
-                stmt = _to_pg_ddl(stmt)
-                cur = self._conn.cursor()
-                try:
-                    cur.execute(stmt)
-                except Exception:
-                    self._conn.rollback()
-                    raise
+                statements.append(stmt)
+
+        for stmt in statements:
+            stmt = _to_pg_ddl(stmt)
+            cur = self._conn.cursor()
+            cur.execute(stmt)
+
         self._conn.commit()
 
     def commit(self):
@@ -154,233 +150,738 @@ class _PgConn:
             self._conn.rollback()
         else:
             self._conn.commit()
+
         self._conn.close()
 
+
 class _PgCursor:
-    """Wraps psycopg2 cursor to return dict-like rows."""
+    """Wrap PostgreSQL cursor and return dictionary-like rows."""
+
     def __init__(self, cur):
         self._cur = cur
 
     def fetchone(self):
         row = self._cur.fetchone()
+
         if row is None:
             return None
+
         return _PgRow(row)
 
     def fetchall(self):
-        return [_PgRow(r) for r in self._cur.fetchall()]
+        return [_PgRow(row) for row in self._cur.fetchall()]
 
     @property
     def rowcount(self):
         return self._cur.rowcount
 
-def _to_pg(sql):
-    """Convert SQLite SQL placeholders/syntax to PostgreSQL."""
-    if not USE_PG:
-        return sql
 
-    # SQLite uses ?, PostgreSQL uses %s
-    sql = sql.replace("?", "%s")
+def get_db():
+    """
+    Return the appropriate database connection.
 
-    # SQLite INSERT OR IGNORE
-    sql = sql.replace(
-        "INSERT OR IGNORE INTO",
-        "INSERT INTO"
+    PostgreSQL is used when DATABASE_URL is configured.
+    Otherwise the application uses SQLite.
+    """
+
+    if USE_PG:
+        conn = psycopg2.connect(
+            DATABASE_URL,
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
+
+        conn.autocommit = False
+
+        return _PgConn(conn)
+
+    conn = sqlite3.connect(
+        DB_PATH,
+        timeout=30,
+        check_same_thread=False
     )
+
+    conn.row_factory = sqlite3.Row
+
+    # Improve SQLite reliability for concurrent queue operations.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=30000")
+
+    return conn
+
+
+def _to_pg(sql):
+    """
+    Convert SQLite-style ? placeholders to PostgreSQL %s.
+    """
+    if USE_PG:
+        return sql.replace("?", "%s")
 
     return sql
 
 
 def _to_pg_ddl(sql):
-    """Convert SQLite DDL to PostgreSQL DDL."""
+    """
+    Convert the small amount of SQLite DDL used by this application
+    into PostgreSQL-compatible DDL.
+    """
+
     if not USE_PG:
         return sql
 
-    # AUTOINCREMENT -> PostgreSQL SERIAL
     sql = sql.replace(
         "INTEGER PRIMARY KEY AUTOINCREMENT",
         "SERIAL PRIMARY KEY"
     )
 
-    # Handle any remaining INTEGER PRIMARY KEY
     sql = sql.replace(
         "INTEGER PRIMARY KEY",
         "SERIAL PRIMARY KEY"
     )
 
+    sql = sql.replace(
+        "INSERT OR IGNORE",
+        "INSERT"
+    )
+
     return sql
+
 
 def now_str():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+
 def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
+
+# ─────────────────────────────────────────────────────────
+# DATABASE SCHEMA
+# ─────────────────────────────────────────────────────────
+
+def _sqlite_table_exists(conn, table_name):
+    """Check whether a SQLite table exists."""
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,)
+    ).fetchone()
+
+    return row is not None
+
+
+def _sqlite_columns(conn, table_name):
+    """Return the columns currently present in a SQLite table."""
+    if not _sqlite_table_exists(conn, table_name):
+        return set()
+
+    rows = conn.execute(
+        f"PRAGMA table_info({table_name})"
+    ).fetchall()
+
+    return {row["name"] for row in rows}
+
+
+def _ensure_sqlite_column(conn, table_name, column_name, definition):
+    """
+    Add a missing SQLite column without destroying existing data.
+    """
+
+    columns = _sqlite_columns(conn, table_name)
+
+    if column_name not in columns:
+        conn.execute(
+            f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"
+        )
+
+
+def _postgres_table_exists(conn, table_name):
+    """Check whether a PostgreSQL table exists."""
+
+    row = conn.execute(
+        """
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema='public'
+        AND table_name=?
+        """,
+        (table_name,)
+    ).fetchone()
+
+    return row is not None
+
+
+def _postgres_columns(conn, table_name):
+    """Return columns currently present in a PostgreSQL table."""
+
+    rows = conn.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema='public'
+        AND table_name=?
+        """,
+        (table_name,)
+    ).fetchall()
+
+    return {row["column_name"] for row in rows}
+
+
+def _ensure_postgres_column(conn, table_name, column_name, definition):
+    """
+    Add a missing PostgreSQL column without destroying existing data.
+    """
+
+    columns = _postgres_columns(conn, table_name)
+
+    if column_name not in columns:
+        conn.execute(
+            f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"
+        )
+
+
+def _ensure_missing_columns(conn):
+    """
+    Upgrade an existing database.
+
+    This is important because CREATE TABLE IF NOT EXISTS does NOT
+    add columns to an already-existing table.
+    """
+
+    if USE_PG:
+
+        migrations = {
+            "users": [
+                ("email", "TEXT"),
+                ("phone", "TEXT"),
+                ("failed_logins", "INTEGER DEFAULT 0"),
+                ("locked_until", "TEXT"),
+                ("reset_token", "TEXT"),
+                ("reset_expires", "TEXT"),
+                ("last_login", "TEXT"),
+            ],
+
+            "tickets": [
+                ("called_at", "TEXT"),
+                ("completed_at", "TEXT"),
+                ("counter", "INTEGER"),
+                ("notes", "TEXT"),
+                ("requeue_count", "INTEGER DEFAULT 0"),
+            ],
+
+            "counters": [
+                ("current_ticket", "TEXT"),
+                ("staff_id", "TEXT"),
+            ],
+
+            "appointments": [
+                ("notes", "TEXT"),
+                ("created_at", "TEXT"),
+            ],
+
+            "feedback": [
+                ("comment", "TEXT"),
+                ("created_at", "TEXT"),
+            ],
+
+            "notifications": [
+                ("is_read", "INTEGER DEFAULT 0"),
+                ("created_at", "TEXT"),
+            ],
+
+            "announcements": [
+                ("type", "TEXT DEFAULT 'info'"),
+                ("is_active", "INTEGER DEFAULT 1"),
+                ("created_by", "TEXT"),
+                ("created_at", "TEXT"),
+                ("expires_at", "TEXT"),
+            ],
+
+            "audit_log": [
+                ("target", "TEXT"),
+                ("detail", "TEXT"),
+                ("ip", "TEXT"),
+                ("created_at", "TEXT"),
+            ],
+
+            "service_config": [
+                ("open_time", "TEXT DEFAULT '08:00'"),
+                ("close_time", "TEXT DEFAULT '17:00'"),
+                ("max_queue", "INTEGER DEFAULT 100"),
+                ("is_paused", "INTEGER DEFAULT 0"),
+                ("pause_reason", "TEXT"),
+            ],
+
+            "hourly_stats": [
+                ("date", "TEXT"),
+                ("hour", "INTEGER"),
+                ("service", "TEXT"),
+                ("count", "INTEGER DEFAULT 0"),
+            ],
+
+            "custom_services": [
+                ("avg_minutes", "INTEGER DEFAULT 10"),
+                ("is_active", "INTEGER DEFAULT 1"),
+                ("created_at", "TEXT"),
+            ],
+        }
+
+        for table, columns in migrations.items():
+
+            if _postgres_table_exists(conn, table):
+
+                for column, definition in columns:
+                    try:
+                        _ensure_postgres_column(
+                            conn,
+                            table,
+                            column,
+                            definition
+                        )
+                    except Exception as e:
+                        print(
+                            f"[Database Migration] "
+                            f"Could not add {table}.{column}: {e}"
+                        )
+
+    else:
+
+        migrations = {
+            "users": [
+                ("email", "TEXT"),
+                ("phone", "TEXT"),
+                ("failed_logins", "INTEGER DEFAULT 0"),
+                ("locked_until", "TEXT"),
+                ("reset_token", "TEXT"),
+                ("reset_expires", "TEXT"),
+                ("last_login", "TEXT"),
+            ],
+
+            "tickets": [
+                ("called_at", "TEXT"),
+                ("completed_at", "TEXT"),
+                ("counter", "INTEGER"),
+                ("notes", "TEXT"),
+                ("requeue_count", "INTEGER DEFAULT 0"),
+            ],
+
+            "counters": [
+                ("current_ticket", "TEXT"),
+                ("staff_id", "TEXT"),
+            ],
+
+            "appointments": [
+                ("notes", "TEXT"),
+                ("created_at", "TEXT"),
+            ],
+
+            "feedback": [
+                ("comment", "TEXT"),
+                ("created_at", "TEXT"),
+            ],
+
+            "notifications": [
+                ("is_read", "INTEGER DEFAULT 0"),
+                ("created_at", "TEXT"),
+            ],
+
+            "announcements": [
+                ("type", "TEXT DEFAULT 'info'"),
+                ("is_active", "INTEGER DEFAULT 1"),
+                ("created_by", "TEXT"),
+                ("created_at", "TEXT"),
+                ("expires_at", "TEXT"),
+            ],
+
+            "audit_log": [
+                ("target", "TEXT"),
+                ("detail", "TEXT"),
+                ("ip", "TEXT"),
+                ("created_at", "TEXT"),
+            ],
+
+            "service_config": [
+                ("open_time", "TEXT DEFAULT '08:00'"),
+                ("close_time", "TEXT DEFAULT '17:00'"),
+                ("max_queue", "INTEGER DEFAULT 100"),
+                ("is_paused", "INTEGER DEFAULT 0"),
+                ("pause_reason", "TEXT"),
+            ],
+
+            "hourly_stats": [
+                ("date", "TEXT"),
+                ("hour", "INTEGER"),
+                ("service", "TEXT"),
+                ("count", "INTEGER DEFAULT 0"),
+            ],
+
+            "custom_services": [
+                ("avg_minutes", "INTEGER DEFAULT 10"),
+                ("is_active", "INTEGER DEFAULT 1"),
+                ("created_at", "TEXT"),
+            ],
+        }
+
+        for table, columns in migrations.items():
+
+            if _sqlite_table_exists(conn, table):
+
+                for column, definition in columns:
+                    try:
+                        _ensure_sqlite_column(
+                            conn,
+                            table,
+                            column,
+                            definition
+                        )
+                    except Exception as e:
+                        print(
+                            f"[Database Migration] "
+                            f"Could not add {table}.{column}: {e}"
+                        )
+
+
+def _create_database_tables(conn):
+    """
+    Create all required tables.
+
+    Existing tables are NOT deleted.
+    """
+
+    schema = """
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL UNIQUE,
+        full_name TEXT NOT NULL,
+        email TEXT,
+        phone TEXT,
+        password TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'student',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        failed_logins INTEGER DEFAULT 0,
+        locked_until TEXT,
+        reset_token TEXT,
+        reset_expires TEXT,
+        created_at TEXT NOT NULL,
+        last_login TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS tickets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_no TEXT NOT NULL UNIQUE,
+        student_id TEXT NOT NULL,
+        student_name TEXT NOT NULL,
+        service TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'waiting',
+        created_at TEXT NOT NULL,
+        called_at TEXT,
+        completed_at TEXT,
+        counter INTEGER,
+        notes TEXT,
+        requeue_count INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS counters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        counter_no INTEGER NOT NULL UNIQUE,
+        service TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        current_ticket TEXT,
+        staff_id TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS appointments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id TEXT NOT NULL,
+        student_name TEXT NOT NULL,
+        service TEXT NOT NULL,
+        appt_date TEXT NOT NULL,
+        appt_time TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'booked',
+        notes TEXT,
+        created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_no TEXT NOT NULL,
+        student_id TEXT NOT NULL,
+        service TEXT NOT NULL,
+        rating INTEGER NOT NULL,
+        comment TEXT,
+        created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id TEXT NOT NULL,
+        message TEXT NOT NULL,
+        is_read INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS announcements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'info',
+        is_active INTEGER DEFAULT 1,
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        target TEXT,
+        detail TEXT,
+        ip TEXT,
+        created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS service_config (
+        service TEXT PRIMARY KEY,
+        open_time TEXT DEFAULT '08:00',
+        close_time TEXT DEFAULT '17:00',
+        max_queue INTEGER DEFAULT 100,
+        is_paused INTEGER DEFAULT 0,
+        pause_reason TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS hourly_stats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        hour INTEGER NOT NULL,
+        service TEXT NOT NULL,
+        count INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS custom_services (
+        key TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        avg_minutes INTEGER NOT NULL DEFAULT 10,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
+    );
+    """
+
+    conn.executescript(schema)
+
+
+def _seed_database(conn):
+    """
+    Insert required default records without deleting existing data.
+    """
+
+    # -----------------------------------------------------
+    # Default counters
+    # -----------------------------------------------------
+
+    counter_defaults = [
+        (1, "admission"),
+        (2, "financial"),
+        (3, "academic"),
+        (4, "counseling"),
+        (5, "library"),
+        (6, "it_support"),
+    ]
+
+    for counter_no, service in counter_defaults:
+
+        existing = conn.execute(
+            "SELECT id FROM counters WHERE counter_no=?",
+            (counter_no,)
+        ).fetchone()
+
+        if not existing:
+            conn.execute(
+                """
+                INSERT INTO counters
+                (counter_no, service, is_active)
+                VALUES (?, ?, 1)
+                """,
+                (counter_no, service)
+            )
+
+    # -----------------------------------------------------
+    # Service configuration
+    # -----------------------------------------------------
+
+    for svc in DEFAULT_SERVICES:
+
+        existing = conn.execute(
+            "SELECT service FROM service_config WHERE service=?",
+            (svc,)
+        ).fetchone()
+
+        if not existing:
+            conn.execute(
+                """
+                INSERT INTO service_config
+                (service, open_time, close_time, max_queue, is_paused)
+                VALUES (?, '08:00', '17:00', 100, 0)
+                """,
+                (svc,)
+            )
+
+    # Add configuration for custom services too.
+    try:
+        custom_services = conn.execute(
+            "SELECT key FROM custom_services WHERE is_active=1"
+        ).fetchall()
+
+        for row in custom_services:
+
+            svc = row["key"]
+
+            existing = conn.execute(
+                "SELECT service FROM service_config WHERE service=?",
+                (svc,)
+            ).fetchone()
+
+            if not existing:
+                conn.execute(
+                    """
+                    INSERT INTO service_config
+                    (service, open_time, close_time, max_queue, is_paused)
+                    VALUES (?, '08:00', '17:00', 100, 0)
+                    """,
+                    (svc,)
+                )
+
+    except Exception:
+        pass
+
+    # -----------------------------------------------------
+    # Default settings
+    # -----------------------------------------------------
+
+    defaults = [
+        ("email_enabled", "0"),
+        ("smtp_host", "smtp.gmail.com"),
+        ("smtp_port", "587"),
+        ("smtp_user", ""),
+        ("smtp_password", ""),
+        ("smtp_from_name", "Smart Queue System"),
+        ("university_name", "Federal University"),
+    ]
+
+    for key, value in defaults:
+
+        existing = conn.execute(
+            "SELECT key FROM settings WHERE key=?",
+            (key,)
+        ).fetchone()
+
+        if not existing:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?)",
+                (key, value)
+            )
+
+    # -----------------------------------------------------
+    # Default administrator
+    # -----------------------------------------------------
+
+    admin_exists = conn.execute(
+        "SELECT id FROM users WHERE role='admin' LIMIT 1"
+    ).fetchone()
+
+    if not admin_exists:
+
+        conn.execute(
+            """
+            INSERT INTO users
+            (user_id, full_name, email, password, role, is_active, created_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?)
+            """,
+            (
+                "admin",
+                "System Administrator",
+                "admin@.atbu.edu.ng",
+                hash_pw("Admin@123"),
+                "admin",
+                now_str()
+            )
+        )
+
+    # -----------------------------------------------------
+    # Demo staff
+    # -----------------------------------------------------
+
+    staff_exists = conn.execute(
+        "SELECT id FROM users WHERE user_id='staff01'"
+    ).fetchone()
+
+    if not staff_exists:
+
+        conn.execute(
+            """
+            INSERT INTO users
+            (user_id, full_name, email, password, role, is_active, created_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?)
+            """,
+            (
+                "staff01",
+                "Demo Staff",
+                "staff@atbu.edu.ng",
+                hash_pw("Staff@123"),
+                "staff",
+                now_str()
+            )
+        )
+
+
 def init_db():
-    with get_db() as c:
-        c.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id       TEXT NOT NULL UNIQUE,
-            full_name     TEXT NOT NULL,
-            email         TEXT,
-            phone         TEXT,
-            password      TEXT NOT NULL,
-            role          TEXT NOT NULL DEFAULT 'student',
-            is_active     INTEGER NOT NULL DEFAULT 1,
-            failed_logins INTEGER DEFAULT 0,
-            locked_until  TEXT,
-            reset_token   TEXT,
-            reset_expires TEXT,
-            created_at    TEXT NOT NULL,
-            last_login    TEXT
-        );
+    """
+    Initialize and repair the Smart Queue database.
 
-        CREATE TABLE IF NOT EXISTS tickets (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticket_no     TEXT NOT NULL UNIQUE,
-            student_id    TEXT NOT NULL,
-            student_name  TEXT NOT NULL,
-            service       TEXT NOT NULL,
-            priority      INTEGER NOT NULL DEFAULT 1,
-            status        TEXT NOT NULL DEFAULT 'waiting',
-            created_at    TEXT NOT NULL,
-            called_at     TEXT,
-            completed_at  TEXT,
-            counter       INTEGER,
-            notes         TEXT,
-            requeue_count INTEGER DEFAULT 0
-        );
+    IMPORTANT:
+    This function does NOT delete the existing database.
 
-        CREATE TABLE IF NOT EXISTS counters (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
-            counter_no     INTEGER NOT NULL UNIQUE,
-            service        TEXT NOT NULL,
-            is_active      INTEGER NOT NULL DEFAULT 1,
-            current_ticket TEXT,
-            staff_id       TEXT
-        );
+    It:
+      1. Creates missing tables.
+      2. Adds missing columns to existing tables.
+      3. Seeds missing default records.
+      4. Preserves existing users and queue history.
+    """
 
-        CREATE TABLE IF NOT EXISTS appointments (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id   TEXT NOT NULL,
-            student_name TEXT NOT NULL,
-            service      TEXT NOT NULL,
-            appt_date    TEXT NOT NULL,
-            appt_time    TEXT NOT NULL,
-            status       TEXT NOT NULL DEFAULT 'booked',
-            notes        TEXT,
-            created_at   TEXT NOT NULL
-        );
+    print("\n[Database] Starting database initialization...")
 
-        CREATE TABLE IF NOT EXISTS feedback (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticket_no  TEXT NOT NULL,
-            student_id TEXT NOT NULL,
-            service    TEXT NOT NULL,
-            rating     INTEGER NOT NULL,
-            comment    TEXT,
-            created_at TEXT NOT NULL
-        );
+    try:
 
-        CREATE TABLE IF NOT EXISTS notifications (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id TEXT NOT NULL,
-            message    TEXT NOT NULL,
-            is_read    INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL
-        );
+        with get_db() as conn:
 
-        CREATE TABLE IF NOT EXISTS announcements (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            title      TEXT NOT NULL,
-            body       TEXT NOT NULL,
-            type       TEXT NOT NULL DEFAULT 'info',
-            is_active  INTEGER DEFAULT 1,
-            created_by TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            expires_at TEXT
-        );
+            # Step 1 — create missing tables.
+            _create_database_tables(conn)
 
-        CREATE TABLE IF NOT EXISTS audit_log (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            actor_id   TEXT NOT NULL,
-            action     TEXT NOT NULL,
-            target     TEXT,
-            detail     TEXT,
-            ip         TEXT,
-            created_at TEXT NOT NULL
-        );
+            # Step 2 — upgrade old tables.
+            _ensure_missing_columns(conn)
 
-        CREATE TABLE IF NOT EXISTS settings (
-            key   TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );
+            # Step 3 — seed required records.
+            _seed_database(conn)
 
-        CREATE TABLE IF NOT EXISTS service_config (
-            service      TEXT PRIMARY KEY,
-            open_time    TEXT DEFAULT '08:00',
-            close_time   TEXT DEFAULT '17:00',
-            max_queue    INTEGER DEFAULT 100,
-            is_paused    INTEGER DEFAULT 0,
-            pause_reason TEXT
-        );
+            conn.commit()
 
-        CREATE TABLE IF NOT EXISTS hourly_stats (
-            id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            date    TEXT NOT NULL,
-            hour    INTEGER NOT NULL,
-            service TEXT NOT NULL,
-            count   INTEGER DEFAULT 0
-        );
+        print("[Database] Database initialization completed successfully.")
+        print(f"[Database] Backend: {'PostgreSQL' if USE_PG else 'SQLite'}")
 
-        CREATE TABLE IF NOT EXISTS custom_services (
-            key         TEXT PRIMARY KEY,
-            name        TEXT NOT NULL,
-            avg_minutes INTEGER NOT NULL DEFAULT 10,
-            is_active   INTEGER NOT NULL DEFAULT 1,
-            created_at  TEXT NOT NULL
-        );
-        """)
+        if not USE_PG:
+            print(f"[Database] SQLite file: {DB_PATH}")
 
-        # Seed counters
-        if c.execute("SELECT COUNT(*) FROM counters").fetchone()[0] == 0:
-            c.executemany("INSERT INTO counters (counter_no, service) VALUES (?,?)", [
-                (1,"admission"),(2,"financial"),(3,"academic"),
-                (4,"counseling"),(5,"library"),(6,"it_support"),
-            ])
+    except Exception as e:
 
-        # Seed service config
-        for svc in SERVICES:
-            c.execute("INSERT OR IGNORE INTO service_config (service) VALUES (?)", (svc,))
-
-        # Seed default settings (email only)
-        defaults = [
-            ("email_enabled",   "0"),
-            ("smtp_host",       "smtp.gmail.com"),
-            ("smtp_port",       "587"),
-            ("smtp_user",       ""),
-            ("smtp_password",   ""),
-            ("smtp_from_name",  "Smart Queue System"),
-            ("university_name", "Federal University"),
-        ]
-        for k, v in defaults:
-            c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)", (k, v))
-
-        # Default admin account
-        if c.execute("SELECT COUNT(*) FROM users WHERE role='admin'").fetchone()[0] == 0:
-            c.execute(
-                "INSERT INTO users (user_id,full_name,email,password,role,created_at) VALUES (?,?,?,?,?,?)",
-                ("admin","System Administrator","admin@university.edu",
-                 hash_pw("Admin@123"),"admin",now_str())
-            )
-        # Demo staff account
-        if c.execute("SELECT COUNT(*) FROM users WHERE user_id='staff01'").fetchone()[0] == 0:
-            c.execute(
-                "INSERT INTO users (user_id,full_name,email,password,role,created_at) VALUES (?,?,?,?,?,?)",
-                ("staff01","Demo Staff","staff@university.edu",
-                 hash_pw("Staff@123"),"staff",now_str())
-            )
+        print("\n[DATABASE ERROR]")
+        print(str(e))
+        print("Database initialization failed.")
+        raise
 
 # ─────────────────────────────────────────────────────────
 # SETTINGS HELPERS
