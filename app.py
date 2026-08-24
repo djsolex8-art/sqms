@@ -126,8 +126,10 @@ class _PgConn:
             sql = _to_pg_ddl(sql)
         cur = self._conn.cursor()
         try:
-            # pg8000 needs list not tuple for params
-            cur.execute(sql, list(params) if params else None)
+            if params:
+                cur.execute(sql, list(params))
+            else:
+                cur.execute(sql)
         except Exception as e:
             self._conn.rollback()
             raise
@@ -136,7 +138,8 @@ class _PgConn:
     def executemany(self, sql, seq):
         sql = _to_pg(sql)
         cur = self._conn.cursor()
-        cur.executemany(sql, seq)
+        for row in seq:
+            cur.execute(sql, list(row) if row else [])
 
     def executescript(self, sql):
         """Run multiple statements separated by semicolons."""
