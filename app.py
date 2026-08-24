@@ -1508,6 +1508,16 @@ def health():
     except Exception as e:
         return str(e), 500
 
+@app.route("/setup")
+def setup():
+    """One-time setup: create all database tables. Visit once after first deploy."""
+    try:
+        init_db()
+        return "Database tables created successfully. Default accounts ready.<br>Admin: admin / Admin@123<br>Staff: staff01 / Staff@123", 200
+    except Exception as e:
+        import traceback
+        return f"Setup error: {e}<br><pre>{traceback.format_exc()}</pre>", 500
+
 @app.route("/display")
 def display():
     return render_template("display.html", services=SERVICES)
@@ -1548,6 +1558,14 @@ def inject_globals():
             "current_user_id": current_user}
 
 # ─────────────────────────────────────────────────────────
+# Auto-initialise database when loaded by Gunicorn
+import sys as _sys
+try:
+    init_db()
+    print("[SQMS] Database initialised OK", file=_sys.stderr)
+except Exception as _init_err:
+    print(f"[SQMS] DB init failed: {_init_err}", file=_sys.stderr)
+
 if __name__ == "__main__":
     init_db()
     print("\n╔══════════════════════════════════════════════════════════╗")
