@@ -175,16 +175,39 @@ class _PgCursor:
         return self._cur.rowcount
 
 def _to_pg(sql):
-    """Convert SQLite ? placeholders to PostgreSQL %s."""
-    return sql.replace("?", "%s") if USE_PG else sql
+    """Convert SQLite SQL placeholders/syntax to PostgreSQL."""
+    if not USE_PG:
+        return sql
+
+    # SQLite uses ?, PostgreSQL uses %s
+    sql = sql.replace("?", "%s")
+
+    # SQLite INSERT OR IGNORE
+    sql = sql.replace(
+        "INSERT OR IGNORE INTO",
+        "INSERT INTO"
+    )
+
+    return sql
+
 
 def _to_pg_ddl(sql):
     """Convert SQLite DDL to PostgreSQL DDL."""
     if not USE_PG:
         return sql
-    sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
-    sql = sql.replace("INTEGER PRIMARY KEY", "SERIAL PRIMARY KEY")
-    sql = sql.replace("IF NOT EXISTS", "IF NOT EXISTS")
+
+    # AUTOINCREMENT -> PostgreSQL SERIAL
+    sql = sql.replace(
+        "INTEGER PRIMARY KEY AUTOINCREMENT",
+        "SERIAL PRIMARY KEY"
+    )
+
+    # Handle any remaining INTEGER PRIMARY KEY
+    sql = sql.replace(
+        "INTEGER PRIMARY KEY",
+        "SERIAL PRIMARY KEY"
+    )
+
     return sql
 
 def now_str():
@@ -369,7 +392,18 @@ def get_setting(key, default=""):
 
 def set_setting(key, value):
     with get_db() as c:
-        c.execute("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", (key, str(value)))
+        if USE_PG:
+            c.execute("""
+                INSERT INTO settings (key, value)
+                VALUES (?, ?)
+                ON CONFLICT (key)
+                DO UPDATE SET value = EXCLUDED.value
+            """, (key, str(value)))
+        else:
+            c.execute(
+                "INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)",
+                (key, str(value))
+            )
 
 def get_all_settings():
     with get_db() as c:
@@ -1044,7 +1078,7 @@ def admin_settings():
                   "smtp_user", "smtp_password", "smtp_from_name", "university_name"]:
             if k in request.form:
                 set_setting(k, request.form[k])
-        for svc in SERVICES:
+        for svc in DEFAULT_SERVICES:
             with get_db() as c:
                 c.execute(
                     "UPDATE service_config SET open_time=?, close_time=?, max_queue=? WHERE service=?",
