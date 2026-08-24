@@ -120,10 +120,29 @@ class _PgConn:
         self._conn = conn
 
     def execute(self, sql, params=()):
-        sql = _to_pg(sql)
-        # Apply DDL fixes for CREATE TABLE statements
-        if sql.strip().upper().startswith("CREATE"):
-            sql = _to_pg_ddl(sql)
+        if USE_PG:
+            # Convert SQLite syntax to PostgreSQL
+            sql = sql.replace("?", "%s")
+            # INSERT OR IGNORE → INSERT ... ON CONFLICT DO NOTHING
+            if "INSERT OR IGNORE" in sql.upper():
+                sql = sql.upper().replace("INSERT OR IGNORE INTO", "INSERT INTO")
+                # restore original case for table/column names by using regex
+                import re as _re
+                sql = _re.sub(r"(?i)INSERT OR IGNORE INTO", "INSERT INTO", sql.replace("?","%s"))
+                sql = sql.rstrip()
+                # Add ON CONFLICT DO NOTHING before any trailing semicolon
+                if not sql.upper().endswith("ON CONFLICT DO NOTHING"):
+                    sql = sql + " ON CONFLICT DO NOTHING"
+            # INSERT OR REPLACE → INSERT ... ON CONFLICT ... DO UPDATE SET
+            elif "INSERT OR REPLACE" in sql.upper():
+                import re as _re
+                sql = _re.sub(r"(?i)INSERT OR REPLACE INTO", "INSERT INTO", sql)
+                # For settings table: on conflict update the value
+                if "ON CONFLICT" not in sql.upper():
+                    sql = sql + " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+            # Apply DDL fixes
+            if sql.strip().upper().startswith("CREATE"):
+                sql = _to_pg_ddl(sql)
         cur = self._conn.cursor()
         try:
             if params:
@@ -199,8 +218,27 @@ class _PgCursor:
         return self._cur.rowcount
 
 def _to_pg(sql):
-    """Convert SQLite ? placeholders to PostgreSQL %s."""
-    return sql.replace("?", "%s") if USE_PG else sql
+    """Convert SQLite SQL to PostgreSQL SQL."""
+    if not USE_PG:
+        return sql
+    # Replace ? placeholders with %s
+    sql = sql.replace("?", "%s")
+    return sql
+
+def _pg_sql(sql):
+    """Full SQLite→PostgreSQL conversion including INSERT OR IGNORE etc."""
+    if not USE_PG:
+        return sql
+    sql = _to_pg(sql)
+    # INSERT OR IGNORE → INSERT ... ON CONFLICT DO NOTHING
+    if "INSERT OR IGNORE" in sql.upper():
+        sql = sql.replace("INSERT OR IGNORE INTO", "INSERT INTO", 1)
+        sql = sql.rstrip().rstrip(")") 
+        sql = sql + ") ON CONFLICT DO NOTHING" if not sql.endswith("ON CONFLICT DO NOTHING") else sql
+    # INSERT OR REPLACE → INSERT ... ON CONFLICT DO UPDATE
+    if "INSERT OR REPLACE" in sql.upper():
+        sql = sql.replace("INSERT OR REPLACE INTO", "INSERT INTO", 1)
+    return sql
 
 def _to_pg_ddl(sql):
     """Convert SQLite DDL to PostgreSQL DDL."""
@@ -346,7 +384,7 @@ def init_db():
 
         # Seed service config
         for svc in SERVICES:
-            c.execute("INSERT OR IGNORE INTO service_config (service) VALUES (?)", (svc,))
+            c.execute("INSERT INTO service_config (service) VALUES (?) ON CONFLICT DO NOTHING", (svc,))
 
         # Seed default settings (email only)
         defaults = [
@@ -359,7 +397,7 @@ def init_db():
             ("university_name", "Federal University"),
         ]
         for k, v in defaults:
-            c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)", (k, v))
+            c.execute("INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT DO NOTHING", (k, v))
 
         # Default admin account
         if c.execute("SELECT COUNT(*) FROM users WHERE role='admin'").fetchone()[0] == 0:
@@ -386,7 +424,7 @@ def get_setting(key, default=""):
 
 def set_setting(key, value):
     with get_db() as c:
-        c.execute("INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)", (key, str(value)))
+        c.execute("INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", (key, str(value)))
 
 def get_all_settings():
     with get_db() as c:
@@ -702,7 +740,7 @@ def join_queue():
         # Hourly stats
         hour  = datetime.now().hour
         today = datetime.now().strftime("%Y-%m-%d")
-        c.execute("INSERT OR IGNORE INTO hourly_stats (date,hour,service,count) VALUES (?,?,?,0)",
+        c.execute("INSERT INTO hourly_stats (date,hour,service,count) VALUES (?,?,?,0) ON CONFLICT DO NOTHING",
                   (today, hour, service))
         c.execute("UPDATE hourly_stats SET count=count+1 WHERE date=? AND hour=? AND service=?",
                   (today, hour, service))
@@ -1116,7 +1154,7 @@ def add_service():
             )
             # Auto-create service_config entry for it
             conn.execute(
-                "INSERT OR IGNORE INTO service_config (service) VALUES (?)", (key,)
+                "INSERT INTO service_config (service) VALUES (?) ON CONFLICT DO NOTHING", (key,)
             )
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
