@@ -18,7 +18,17 @@ FEATURES:
 
 from flask import (Flask, render_template, request, jsonify,
                    redirect, url_for, session, send_file, flash)
-import sqlite3, os, csv, io, hashlib, secrets, smtplib
+import os, csv, io, hashlib, secrets, smtplib
+
+# Database backend — PostgreSQL (Supabase) when DATABASE_URL is set, else SQLite
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+USE_PG = bool(DATABASE_URL)
+
+if USE_PG:
+    import psycopg2
+    import psycopg2.extras
+else:
+    import sqlite3
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -76,11 +86,104 @@ PRIORITY_LABELS = {1: "Normal", 2: "High", 3: "Urgent"}
 # ─────────────────────────────────────────────────────────
 # DATABASE
 # ─────────────────────────────────────────────────────────
+class _PgRow(dict):
+    """Make psycopg2 rows behave like sqlite3.Row (access by column name)."""
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    if USE_PG:
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        conn.autocommit = False
+        conn._is_pg = True
+        return _PgConn(conn)
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
+
+class _PgConn:
+    """Thin wrapper making psycopg2 work like sqlite3 context manager."""
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=()):
+        sql = _to_pg(sql)
+        cur = self._conn.cursor()
+        cur.execute(sql, params)
+        return _PgCursor(cur)
+
+    def executemany(self, sql, seq):
+        sql = _to_pg(sql)
+        cur = self._conn.cursor()
+        cur.executemany(sql, seq)
+
+    def executescript(self, sql):
+        """Run multiple statements separated by semicolons."""
+        for stmt in sql.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                stmt = _to_pg_ddl(stmt)
+                cur = self._conn.cursor()
+                try:
+                    cur.execute(stmt)
+                except Exception:
+                    self._conn.rollback()
+                    raise
+        self._conn.commit()
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, *_):
+        if exc_type:
+            self._conn.rollback()
+        else:
+            self._conn.commit()
+        self._conn.close()
+
+class _PgCursor:
+    """Wraps psycopg2 cursor to return dict-like rows."""
+    def __init__(self, cur):
+        self._cur = cur
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        if row is None:
+            return None
+        return _PgRow(row)
+
+    def fetchall(self):
+        return [_PgRow(r) for r in self._cur.fetchall()]
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+def _to_pg(sql):
+    """Convert SQLite ? placeholders to PostgreSQL %s."""
+    return sql.replace("?", "%s") if USE_PG else sql
+
+def _to_pg_ddl(sql):
+    """Convert SQLite DDL to PostgreSQL DDL."""
+    if not USE_PG:
+        return sql
+    sql = sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+    sql = sql.replace("INTEGER PRIMARY KEY", "SERIAL PRIMARY KEY")
+    sql = sql.replace("IF NOT EXISTS", "IF NOT EXISTS")
+    return sql
 
 def now_str():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -444,7 +547,10 @@ def register():
                 session.update({"user_id": uid, "full_name": name, "role": "student", "email": email})
                 audit(uid, "REGISTER")
                 return redirect(url_for("index"))
-            except sqlite3.IntegrityError:
+            except Exception as _ie:
+                if 'unique' not in str(_ie).lower() and 'duplicate' not in str(_ie).lower():
+                    raise
+                    raise
                 error = "That Student ID is already registered."
     return render_template("register.html", error=error)
 
@@ -887,7 +993,9 @@ def create_user():
             )
         audit(current_user(), "CREATE_USER", uid, f"role={role}")
         return jsonify({"success": True})
-    except sqlite3.IntegrityError:
+    except Exception as _ie:
+        if 'unique' not in str(_ie).lower() and 'duplicate' not in str(_ie).lower():
+            raise
         return jsonify({"success": False, "error": "That User ID already exists."}), 409
 
 @app.route("/admin/users/toggle", methods=["POST"])
