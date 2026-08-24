@@ -95,9 +95,11 @@ class _PgRow(dict):
 
 def get_db():
     if USE_PG:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = psycopg2.connect(
+            DATABASE_URL,
+            cursor_factory=psycopg2.extras.RealDictCursor
+        )
         conn.autocommit = False
-        conn._is_pg = True
         return _PgConn(conn)
     else:
         conn = sqlite3.connect(DB_PATH)
