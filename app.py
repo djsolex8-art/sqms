@@ -25,8 +25,8 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 USE_PG = bool(DATABASE_URL)
 
 if USE_PG:
-    import psycopg2
-    import psycopg2.extras
+    import pg8000
+    import pg8000.native
 else:
     import sqlite3
 from datetime import datetime, timedelta
@@ -87,7 +87,7 @@ PRIORITY_LABELS = {1: "Normal", 2: "High", 3: "Urgent"}
 # DATABASE
 # ─────────────────────────────────────────────────────────
 class _PgRow(dict):
-    """Make psycopg2 rows behave like sqlite3.Row (access by column name)."""
+    """Make pg8000 rows behave like sqlite3.Row (access by column name)."""
     def __getitem__(self, key):
         if isinstance(key, int):
             return list(self.values())[key]
@@ -95,13 +95,18 @@ class _PgRow(dict):
 
 def get_db():
     if USE_PG:
-        # Supabase requires SSL
-        db_url = DATABASE_URL
-        if 'sslmode' not in db_url:
-            db_url += ('&' if '?' in db_url else '?') + 'sslmode=require'
-        conn = psycopg2.connect(db_url, cursor_factory=psycopg2.extras.RealDictCursor)
+        # Parse DATABASE_URL for pg8000
+        import urllib.parse
+        url = urllib.parse.urlparse(DATABASE_URL)
+        conn = pg8000.connect(
+            host=url.hostname,
+            port=url.port or 5432,
+            database=url.path.lstrip('/'),
+            user=url.username,
+            password=url.password,
+            ssl_context=True  # Supabase requires SSL
+        )
         conn.autocommit = False
-        conn._is_pg = True
         return _PgConn(conn)
     else:
         conn = sqlite3.connect(DB_PATH)
@@ -121,7 +126,8 @@ class _PgConn:
             sql = _to_pg_ddl(sql)
         cur = self._conn.cursor()
         try:
-            cur.execute(sql, params)
+            # pg8000 needs list not tuple for params
+            cur.execute(sql, list(params) if params else None)
         except Exception as e:
             self._conn.rollback()
             raise
@@ -166,18 +172,24 @@ class _PgConn:
         self._conn.close()
 
 class _PgCursor:
-    """Wraps psycopg2 cursor to return dict-like rows."""
+    """Wraps pg8000 cursor to return dict-like rows."""
     def __init__(self, cur):
         self._cur = cur
 
-    def fetchone(self):
-        row = self._cur.fetchone()
-        if row is None:
+    def _to_row(self, raw):
+        if raw is None:
             return None
-        return _PgRow(row)
+        if self._cur.description:
+            cols = [d[0] for d in self._cur.description]
+            return _PgRow(zip(cols, raw))
+        return _PgRow()
+
+    def fetchone(self):
+        return self._to_row(self._cur.fetchone())
 
     def fetchall(self):
-        return [_PgRow(r) for r in self._cur.fetchall()]
+        rows = self._cur.fetchall() or []
+        return [self._to_row(r) for r in rows]
 
     @property
     def rowcount(self):
