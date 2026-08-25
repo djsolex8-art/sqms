@@ -18,7 +18,7 @@ FEATURES:
 
 from flask import (Flask, render_template, request, jsonify,
                    redirect, url_for, session, send_file, flash)
-import os, csv, re, io, hashlib, secrets, smtplib, threading, queue as _queue, urllib.parse, time
+import os, csv, re, io, hashlib, secrets, smtplib
 
 # Database backend — PostgreSQL (Supabase) when DATABASE_URL is set, else SQLite
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -51,56 +51,34 @@ DEFAULT_SERVICES = {
     "it_support": {"name": "IT Support",               "avg_minutes": 12},
 }
 
-_services_cache = None
-_services_cache_at = 0.0
-_services_cache_lock = threading.Lock()
-SERVICES_CACHE_TTL = int(os.environ.get("SERVICES_CACHE_TTL", "30"))
-
-def invalidate_services_cache():
-    global _services_cache, _services_cache_at
-    with _services_cache_lock:
-        _services_cache = None
-        _services_cache_at = 0.0
-
 def get_services():
-    """Return built-in + active custom services, cached briefly to avoid DB hits on every access."""
-    global _services_cache, _services_cache_at
-    now = time.monotonic()
-    if _services_cache is not None and now - _services_cache_at < SERVICES_CACHE_TTL:
-        return dict(_services_cache)
-    with _services_cache_lock:
-        now = time.monotonic()
-        if _services_cache is not None and now - _services_cache_at < SERVICES_CACHE_TTL:
-            return dict(_services_cache)
-        services = dict(DEFAULT_SERVICES)
-        try:
-            with get_db() as conn:
-                rows = conn.execute(
-                    "SELECT key, name, avg_minutes FROM custom_services WHERE is_active=1"
-                ).fetchall()
-            for r in rows:
-                services[r["key"]] = {
-                    "name": r["name"],
-                    "avg_minutes": r["avg_minutes"],
-                    "custom": True
-                }
-        except Exception:
-            # Keep built-in services available if the DB is temporarily unavailable.
-            pass
-        _services_cache = services
-        _services_cache_at = time.monotonic()
-        return dict(services)
+    """Return merged dict of built-in + admin-added custom services."""
+    services = dict(DEFAULT_SERVICES)
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT key, name, avg_minutes FROM custom_services WHERE is_active=1"
+            ).fetchall()
+        for r in rows:
+            services[r["key"]] = {
+                "name": r["name"],
+                "avg_minutes": r["avg_minutes"],
+                "custom": True
+            }
+    except Exception:
+        pass
+    return services
 
 class _ServiceProxy(dict):
-    """Behaves like a dict while avoiding a DB query on every lookup."""
-    def __getitem__(self, k): return get_services()[k]
+    """Behaves like a dict but always reflects the latest services from DB."""
+    def __getitem__(self, k):  return get_services()[k]
     def __contains__(self, k): return k in get_services()
-    def __iter__(self): return iter(get_services())
-    def __len__(self): return len(get_services())
-    def keys(self): return get_services().keys()
-    def values(self): return get_services().values()
-    def items(self): return get_services().items()
-    def get(self, k, d=None): return get_services().get(k, d)
+    def __iter__(self):        return iter(get_services())
+    def __len__(self):         return len(get_services())
+    def keys(self):            return get_services().keys()
+    def values(self):          return get_services().values()
+    def items(self):           return get_services().items()
+    def get(self, k, d=None):  return get_services().get(k, d)
 
 SERVICES = _ServiceProxy()
 PRIORITY_LABELS = {1: "Normal", 2: "High", 3: "Urgent"}
@@ -115,97 +93,54 @@ class _PgRow(dict):
             return list(self.values())[key]
         return super().__getitem__(key)
 
-_pg_pool = None
-_pg_pool_lock = threading.Lock()
-
-class _PgConnectionPool:
-    """Small per-process pg8000 connection pool. Each worker owns its own pool."""
-    def __init__(self, size=4):
-        self.size = max(1, int(size))
-        self._available = _queue.LifoQueue(maxsize=self.size)
-        self._created = 0
-        self._lock = threading.Lock()
-
-    def _new_connection(self):
-        url = urllib.parse.urlparse(DATABASE_URL)
-        kwargs = {
-            "host": url.hostname,
-            "port": url.port or 5432,
-            "database": url.path.lstrip("/"),
-            "user": urllib.parse.unquote(url.username or ""),
-            "password": urllib.parse.unquote(url.password or ""),
-            "ssl_context": True,
-        }
-        conn = pg8000.connect(**kwargs)
-        conn.autocommit = False
-        return conn
-
-    def acquire(self):
-        try:
-            return self._available.get_nowait()
-        except _queue.Empty:
-            with self._lock:
-                if self._created < self.size:
-                    conn = self._new_connection()
-                    self._created += 1
-                    return conn
-            return self._available.get()
-
-    def release(self, conn, discard=False):
-        if conn is None:
-            return
-        if discard:
-            try:
-                conn.close()
-            finally:
-                with self._lock:
-                    self._created = max(0, self._created - 1)
-            return
-        try:
-            conn.rollback()
-            self._available.put_nowait(conn)
-        except Exception:
-            try:
-                conn.close()
-            finally:
-                with self._lock:
-                    self._created = max(0, self._created - 1)
-
-def _get_pg_pool():
-    global _pg_pool
-    if _pg_pool is None:
-        with _pg_pool_lock:
-            if _pg_pool is None:
-                size = int(os.environ.get("DB_POOL_SIZE", "4"))
-                _pg_pool = _PgConnectionPool(size=size)
-    return _pg_pool
-
 def get_db():
     if USE_PG:
-        return _PgConn(_get_pg_pool())
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    return conn
+        # Parse DATABASE_URL for pg8000
+        import urllib.parse
+        url = urllib.parse.urlparse(DATABASE_URL)
+        conn = pg8000.connect(
+            host=url.hostname,
+            port=url.port or 5432,
+            database=url.path.lstrip('/'),
+            user=url.username,
+            password=url.password,
+            ssl_context=True  # Supabase requires SSL
+        )
+        conn.autocommit = False
+        return _PgConn(conn)
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
 
 class _PgConn:
-    """Connection wrapper that returns pg8000 connections to the pool on exit."""
-    def __init__(self, pool):
-        self._pool = pool
-        self._conn = pool.acquire()
-        self._broken = False
+    """Thin wrapper making psycopg2 work like sqlite3 context manager."""
+    def __init__(self, conn):
+        self._conn = conn
 
     def execute(self, sql, params=()):
         if USE_PG:
+            # Convert SQLite syntax to PostgreSQL
             sql = sql.replace("?", "%s")
+            # INSERT OR IGNORE → INSERT ... ON CONFLICT DO NOTHING
             if "INSERT OR IGNORE" in sql.upper():
-                sql = re.sub(r"(?i)INSERT OR IGNORE INTO", "INSERT INTO", sql)
-                sql = sql.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
+                sql = sql.upper().replace("INSERT OR IGNORE INTO", "INSERT INTO")
+                # restore original case for table/column names by using regex
+                import re as _re
+                sql = _re.sub(r"(?i)INSERT OR IGNORE INTO", "INSERT INTO", sql.replace("?","%s"))
+                sql = sql.rstrip()
+                # Add ON CONFLICT DO NOTHING before any trailing semicolon
+                if not sql.upper().endswith("ON CONFLICT DO NOTHING"):
+                    sql = sql + " ON CONFLICT DO NOTHING"
+            # INSERT OR REPLACE → INSERT ... ON CONFLICT ... DO UPDATE SET
             elif "INSERT OR REPLACE" in sql.upper():
-                sql = re.sub(r"(?i)INSERT OR REPLACE INTO", "INSERT INTO", sql)
+                import re as _re
+                sql = _re.sub(r"(?i)INSERT OR REPLACE INTO", "INSERT INTO", sql)
+                # For settings table: on conflict update the value
                 if "ON CONFLICT" not in sql.upper():
-                    sql = sql.rstrip().rstrip(";") + " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+                    sql = sql + " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+            # Apply DDL fixes
             if sql.strip().upper().startswith("CREATE"):
                 sql = _to_pg_ddl(sql)
         cur = self._conn.cursor()
@@ -214,65 +149,73 @@ class _PgConn:
                 cur.execute(sql, list(params))
             else:
                 cur.execute(sql)
-        except Exception:
-            self._broken = False
-            try:
-                self._conn.rollback()
-            except Exception:
-                self._broken = True
+        except Exception as e:
+            self._conn.rollback()
             raise
         return _PgCursor(cur)
 
     def executemany(self, sql, seq):
         sql = _to_pg(sql)
         cur = self._conn.cursor()
-        try:
-            for row in seq:
-                cur.execute(sql, list(row) if row else [])
-        except Exception:
-            try: self._conn.rollback()
-            except Exception: self._broken = True
-            raise
+        for row in seq:
+            cur.execute(sql, list(row) if row else [])
 
     def executescript(self, sql):
+        """Run multiple statements separated by semicolons."""
         for stmt in sql.split(";"):
             stmt = stmt.strip()
             if stmt:
+                stmt = _to_pg_ddl(stmt)
                 cur = self._conn.cursor()
-                cur.execute(_to_pg_ddl(stmt))
+                try:
+                    cur.execute(stmt)
+                except Exception:
+                    self._conn.rollback()
+                    raise
         self._conn.commit()
 
-    def commit(self): self._conn.commit()
-    def rollback(self): self._conn.rollback()
-    def close(self):
-        if self._conn is not None:
-            self._pool.release(self._conn, discard=self._broken)
-            self._conn = None
+    def commit(self):
+        self._conn.commit()
 
-    def __enter__(self): return self
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+    def __enter__(self):
+        return self
 
     def __exit__(self, exc_type, *_):
-        try:
-            if exc_type:
-                self._conn.rollback()
-            else:
-                self._conn.commit()
-        finally:
-            self.close()
+        if exc_type:
+            self._conn.rollback()
+        else:
+            self._conn.commit()
+        self._conn.close()
 
 class _PgCursor:
     """Wraps pg8000 cursor to return dict-like rows."""
-    def __init__(self, cur): self._cur = cur
+    def __init__(self, cur):
+        self._cur = cur
+
     def _to_row(self, raw):
-        if raw is None: return None
+        if raw is None:
+            return None
         if self._cur.description:
             cols = [d[0] for d in self._cur.description]
             return _PgRow(zip(cols, raw))
         return _PgRow()
-    def fetchone(self): return self._to_row(self._cur.fetchone())
-    def fetchall(self): return [self._to_row(r) for r in (self._cur.fetchall() or [])]
+
+    def fetchone(self):
+        return self._to_row(self._cur.fetchone())
+
+    def fetchall(self):
+        rows = self._cur.fetchall() or []
+        return [self._to_row(r) for r in rows]
+
     @property
-    def rowcount(self): return self._cur.rowcount
+    def rowcount(self):
+        return self._cur.rowcount
 
 def _to_pg(sql):
     """Convert SQLite SQL to PostgreSQL SQL."""
@@ -442,21 +385,6 @@ def init_db():
             is_active   INTEGER NOT NULL DEFAULT 1,
             created_at  TEXT NOT NULL
         )""")
-
-        # Performance indexes for the most frequently used queue queries.
-        for index_sql in (
-            "CREATE INDEX IF NOT EXISTS idx_tickets_service_status_priority_created ON tickets(service,status,priority,created_at)",
-            "CREATE INDEX IF NOT EXISTS idx_tickets_student_status ON tickets(student_id,status)",
-            "CREATE INDEX IF NOT EXISTS idx_tickets_ticket_no ON tickets(ticket_no)",
-            "CREATE INDEX IF NOT EXISTS idx_appointments_student_date_status ON appointments(student_id,appt_date,status)",
-            "CREATE INDEX IF NOT EXISTS idx_notifications_student_read_created ON notifications(student_id,is_read,created_at)",
-            "CREATE INDEX IF NOT EXISTS idx_feedback_ticket_no ON feedback(ticket_no)",
-            "CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_log(created_at)",
-            "CREATE INDEX IF NOT EXISTS idx_hourly_stats_date_hour_service ON hourly_stats(date,hour,service)",
-            "CREATE INDEX IF NOT EXISTS idx_counters_service_active ON counters(service,is_active)",
-            "CREATE INDEX IF NOT EXISTS idx_announcements_active_created ON announcements(is_active,created_at)",
-        ):
-            c.execute(index_sql)
 
         # Seed counters
         if c.execute("SELECT COUNT(*) FROM counters").fetchone()[0] == 0:
@@ -1241,7 +1169,6 @@ def add_service():
             )
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
-    invalidate_services_cache()
     audit(current_user(), "ADD_SERVICE", key, f"name={name} avg={avg_minutes}min")
     return jsonify({"success": True, "key": key, "name": name})
 
@@ -1267,7 +1194,6 @@ def edit_service(svc_key):
             "UPDATE custom_services SET name=?, avg_minutes=? WHERE key=?",
             (name, avg_minutes, svc_key)
         )
-    invalidate_services_cache()
     audit(current_user(), "EDIT_SERVICE", svc_key, f"name={name} avg={avg_minutes}min")
     return jsonify({"success": True})
 
@@ -1294,7 +1220,6 @@ def delete_service(svc_key):
         conn.execute(
             "UPDATE counters SET is_active=0 WHERE service=?", (svc_key,)
         )
-    invalidate_services_cache()
     audit(current_user(), "DELETE_SERVICE", svc_key)
     return jsonify({"success": True})
 
@@ -1455,50 +1380,84 @@ def bulk_reset():
 @role_required("staff", "admin")
 def analytics():
     today = datetime.now().strftime("%Y-%m-%d")
-    with get_db() as c:
+    with get_db() as conn:
         stats = {}
-        for k, v in SERVICES.items():
-            served = c.execute(
-                "SELECT COUNT(*) FROM tickets WHERE service=? AND status='completed' AND DATE(created_at)=?",
-                (k, today)
-            ).fetchone()[0]
-            avg_wait = c.execute(
-                "SELECT AVG((julianday(called_at)-julianday(created_at))*1440) FROM tickets WHERE service=? AND called_at IS NOT NULL AND DATE(created_at)=?",
-                (k, today)
-            ).fetchone()[0] or 0
-            avg_serve = c.execute(
-                "SELECT AVG((julianday(completed_at)-julianday(called_at))*1440) FROM tickets WHERE service=? AND status='completed' AND called_at IS NOT NULL AND DATE(created_at)=?",
-                (k, today)
-            ).fetchone()[0] or 0
-            waiting_now = c.execute(
-                "SELECT COUNT(*) FROM tickets WHERE service=? AND status='waiting'", (k,)
-            ).fetchone()[0]
-            avg_rating = c.execute(
-                "SELECT ROUND(AVG(rating),1) FROM feedback WHERE service=?", (k,)
-            ).fetchone()[0] or 0
-            stats[k] = {"name": v["name"], "served_today": served,
-                        "avg_wait_min": round(avg_wait, 1),
-                        "avg_serve_min": round(avg_serve, 1),
-                        "waiting_now": waiting_now, "avg_rating": avg_rating}
 
-        total_today = c.execute(
-            "SELECT COUNT(*) FROM tickets WHERE status='completed' AND DATE(created_at)=?", (today,)
-        ).fetchone()[0]
-        no_shows    = c.execute(
-            "SELECT COUNT(*) FROM tickets WHERE status='no_show' AND DATE(created_at)=?", (today,)
-        ).fetchone()[0]
-        total_fb    = c.execute("SELECT COUNT(*) FROM feedback").fetchone()[0]
-        overall_r   = c.execute("SELECT ROUND(AVG(rating),1) FROM feedback").fetchone()[0] or 0
+        if USE_PG:
+            # Single bulk query — much faster than per-service loop
+            rows = conn.execute(
+                """SELECT service,
+                   COUNT(*) FILTER (WHERE status='completed') as served,
+                   COUNT(*) FILTER (WHERE status='no_show') as noshows,
+                   COUNT(*) FILTER (WHERE status IN ('waiting','serving')) as waiting_now,
+                   ROUND(AVG(EXTRACT(EPOCH FROM (called_at::timestamp - created_at::timestamp))/60)
+                       FILTER (WHERE called_at IS NOT NULL AND DATE(created_at::timestamp)=%s)::numeric, 1) as avg_wait,
+                   ROUND(AVG(EXTRACT(EPOCH FROM (completed_at::timestamp - called_at::timestamp))/60)
+                       FILTER (WHERE status='completed' AND called_at IS NOT NULL AND DATE(created_at::timestamp)=%s)::numeric, 1) as avg_serve
+                   FROM tickets WHERE DATE(created_at::timestamp)=%s
+                   GROUP BY service""",
+                (today, today, today)
+            ).fetchall()
+            bulk_map = {r['service']: r for r in rows}
 
-        hourly_data = {h: {k: 0 for k in SERVICES} for h in range(8, 18)}
-        for row in c.execute("SELECT hour, service, count FROM hourly_stats WHERE date=?", (today,)):
-            if row["hour"] in hourly_data:
-                hourly_data[row["hour"]][row["service"]] = row["count"]
+            for k in SERVICES:
+                r = bulk_map.get(k, {})
+                stats[k] = {
+                    "served_today": int(r.get('served') or 0),
+                    "noshows":      int(r.get('noshows') or 0),
+                    "waiting_now":  int(r.get('waiting_now') or 0),
+                    "avg_wait_min": float(r.get('avg_wait') or 0),
+                    "avg_serve_min":float(r.get('avg_serve') or 0),
+                    "avg_rating":   0.0,
+                }
+            # Get ratings in one query
+            ratings = conn.execute(
+                "SELECT service, ROUND(AVG(rating)::numeric,1) as avg_r, COUNT(*) as cnt FROM feedback GROUP BY service"
+            ).fetchall()
+            for r in ratings:
+                if r['service'] in stats:
+                    stats[r['service']]['avg_rating'] = float(r['avg_r'] or 0)
 
-    return render_template("analytics.html", stats=stats, total_today=total_today,
-                           no_shows=no_shows, total_feedback=total_fb, overall_rating=overall_r,
-                           today=today, hourly_data=hourly_data, services=SERVICES,
-                           role=current_role())
+        else:
+            # SQLite fallback — per-service queries
+            for k, v in SERVICES.items():
+                served     = conn.execute("SELECT COUNT(*) FROM tickets WHERE service=? AND status='completed' AND DATE(created_at)=?", (k, today)).fetchone()[0]
+                noshows    = conn.execute("SELECT COUNT(*) FROM tickets WHERE service=? AND status='no_show' AND DATE(created_at)=?", (k, today)).fetchone()[0]
+                waiting_now= conn.execute("SELECT COUNT(*) FROM tickets WHERE service=? AND status IN ('waiting','serving')", (k,)).fetchone()[0]
+                avg_wait   = conn.execute("SELECT AVG((julianday(called_at)-julianday(created_at))*1440) FROM tickets WHERE service=? AND called_at IS NOT NULL AND DATE(created_at)=?", (k, today)).fetchone()[0] or 0
+                avg_serve  = conn.execute("SELECT AVG((julianday(completed_at)-julianday(called_at))*1440) FROM tickets WHERE service=? AND status='completed' AND called_at IS NOT NULL AND DATE(created_at)=?", (k, today)).fetchone()[0] or 0
+                fb         = conn.execute("SELECT AVG(rating) as avg_r FROM feedback WHERE service=?", (k,)).fetchone()
+                stats[k] = {
+                    "served_today": served,
+                    "noshows":      noshows,
+                    "waiting_now":  waiting_now,
+                    "avg_wait_min": round(float(avg_wait), 1),
+                    "avg_serve_min":round(float(avg_serve), 1),
+                    "avg_rating":   round(float(fb['avg_r'] or 0), 1) if fb else 0.0,
+                }
+
+        # Heatmap data
+        heatmap = {}
+        heat_rows = conn.execute(
+            "SELECT service, hour, SUM(count) as total FROM hourly_stats WHERE date=%s GROUP BY service, hour" if USE_PG
+            else "SELECT service, hour, SUM(count) as total FROM hourly_stats WHERE date=? GROUP BY service, hour",
+            (today,)
+        ).fetchall()
+        for r in heat_rows:
+            heatmap.setdefault(r['service'], {})[r['hour']] = r['total']
+
+        total_served  = sum(s['served_today'] for s in stats.values())
+        total_noshows = sum(s.get('noshows',0) for s in stats.values())
+        total_waiting = sum(s.get('waiting_now',0) for s in stats.values())
+        ratings_all   = [s.get('avg_rating',0) for s in stats.values() if s.get('avg_rating',0) > 0]
+        overall_rating= round(sum(ratings_all)/len(ratings_all), 1) if ratings_all else 0.0
+
+    return render_template("analytics.html",
+        stats=stats, services=get_services(), heatmap=heatmap, hourly_data=heatmap,
+        today=today, total_served=total_served,
+        total_noshows=total_noshows, total_waiting=total_waiting,
+        overall_rating=overall_rating, role=current_role())
+
 
 @app.route("/admin/export/csv")
 @role_required("staff", "admin")
