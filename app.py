@@ -95,16 +95,21 @@ class _PgRow(dict):
 
 def get_db():
     if USE_PG:
-        # Parse DATABASE_URL for pg8000
-        import urllib.parse
-        url = urllib.parse.urlparse(DATABASE_URL)
+        import urllib.parse, ssl
+        # Strip brackets Supabase transaction pool adds around hostname
+        db_url = DATABASE_URL.replace('[', '').replace(']', '')
+        url = urllib.parse.urlparse(db_url)
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
         conn = pg8000.connect(
             host=url.hostname,
             port=url.port or 5432,
             database=url.path.lstrip('/'),
             user=url.username,
             password=url.password,
-            ssl_context=True  # Supabase requires SSL
+            ssl_context=ssl_ctx,
+            tcp_keepalive=True
         )
         conn.autocommit = False
         return _PgConn(conn)
@@ -564,10 +569,18 @@ def login():
     if request.method == "POST":
         uid = request.form["user_id"].strip()
         pw  = request.form["password"]
-        with get_db() as c:
-            u = c.execute("SELECT * FROM users WHERE user_id=?", (uid,)).fetchone()
-        if not u:
+        try:
+            with get_db() as c:
+                u = c.execute("SELECT * FROM users WHERE user_id=?", (uid,)).fetchone()
+        except Exception as _db_err:
+            import sys
+            print(f"[SQMS] Login DB error: {_db_err}", file=sys.stderr)
+            error = "Database connection error. Please try again in a moment."
+            u = None
+        if not u and not error:
             error = "Invalid ID or password."
+        elif not u:
+            pass  # error already set above
         elif not u["is_active"]:
             error = "This account has been deactivated. Contact the administrator."
         elif u["locked_until"] and datetime.now() < datetime.fromisoformat(u["locked_until"]):
@@ -1596,13 +1609,37 @@ def health():
 
 @app.route("/setup")
 def setup():
-    """One-time setup: create all database tables. Visit once after first deploy."""
+    """One-time setup: create all tables and test connection."""
     try:
         init_db()
-        return "Database tables created successfully. Default accounts ready.<br>Admin: admin / Admin@123<br>Staff: staff01 / Staff@123", 200
+        # Verify accounts exist
+        with get_db() as conn:
+            users = conn.execute("SELECT user_id, role, is_active FROM users ORDER BY id").fetchall()
+            user_list = "<br>".join([f"  {u['user_id']} ({u['role']}) active={u['is_active']}" for u in users])
+        return (f"<h3>✓ Database ready</h3>"
+                f"<p>Tables created. Accounts found:</p>"
+                f"<pre>{user_list}</pre>"
+                f"<p><b>Admin:</b> admin / Admin@123<br>"
+                f"<b>Staff:</b> staff01 / Staff@123</p>"), 200
     except Exception as e:
         import traceback
-        return f"Setup error: {e}<br><pre>{traceback.format_exc()}</pre>", 500
+        return f"<h3>✗ Setup error</h3><pre>{e}<br>{traceback.format_exc()}</pre>", 500
+
+@app.route("/debug-login/<uid>")
+def debug_login(uid):
+    """Debug: check if a user exists and their status."""
+    try:
+        with get_db() as conn:
+            u = conn.execute(
+                "SELECT user_id, role, is_active, locked_until FROM users WHERE user_id=%s" if USE_PG
+                else "SELECT user_id, role, is_active, locked_until FROM users WHERE user_id=?",
+                (uid,)
+            ).fetchone()
+        if u:
+            return f"User found: {dict(u)}", 200
+        return f"No user with id '{uid}'", 404
+    except Exception as e:
+        return f"DB error: {e}", 500
 
 @app.route("/display")
 def display():
