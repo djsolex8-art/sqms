@@ -37,7 +37,15 @@ import random, string
 
 app = Flask(__name__)
 import os
-app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+_sk = os.environ.get('SECRET_KEY', '')
+if not _sk:
+    _sk = 'sqms-fallback-dev-key-99xk2m'
+    import sys as _sys2
+    print("[SQMS] WARNING: No SECRET_KEY set — sessions will break on restart", file=_sys2.stderr)
+app.secret_key = _sk
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
 _data_dir = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(_data_dir, "queue.db")
 
